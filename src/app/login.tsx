@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import {
   Alert,
@@ -14,13 +14,18 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { isSupabaseConfigured } from "../lib/supabase";
+import { signIn } from "../lib/auth";
 
 export default function Login() {
+  const { signup } = useLocalSearchParams<{ signup?: string }>();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loginError, setLoginError] = useState("");
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     // Check empty fields
     if (!email.trim() || !password) {
       Alert.alert(
@@ -30,37 +35,39 @@ export default function Login() {
       return;
     }
 
-    const userEmail = email.trim().toLowerCase();
-
-    // =========================
-    // ADMIN LOGIN
-    // =========================
-    if (
-      userEmail === "admin@stayfit.com" &&
-      password === "admin123"
-    ) {
-      router.replace("/admin/dashboard");
+    if (!isSupabaseConfigured) {
+      Alert.alert("Backend Not Configured", "Add your Supabase project URL and publishable key to the .env file, then restart Expo.");
       return;
     }
 
-    // =========================
-    // MEMBER LOGIN
-    // =========================
-    if (
-      userEmail === "member@stayfit.com" &&
-      password === "member123"
-    ) {
-      router.replace("/member/dashboard");
+    setIsSubmitting(true);
+    setLoginError("");
+    try {
+      const role = await signIn(email, password);
+      router.replace(role === "admin" ? "/admin/dashboard" : "/member/dashboard");
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : "Check your email and password, then try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    if (!email.trim()) {
+      Alert.alert("Email Required", "Enter your email address first.");
       return;
     }
-
-    // =========================
-    // INVALID LOGIN
-    // =========================
-    Alert.alert(
-      "Login Failed",
-      "Invalid email or password."
-    );
+    if (!isSupabaseConfigured) {
+      Alert.alert("Backend Not Configured", "Add your Supabase project URL and publishable key to the .env file, then restart Expo.");
+      return;
+    }
+    try {
+      const { supabase } = await import("../lib/supabase");
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase());
+      Alert.alert(error ? "Reset Failed" : "Check Your Email", error?.message ?? "If an account exists, we sent a password reset link.");
+    } catch {
+      Alert.alert("Reset Failed", "Please try again when you have an internet connection.");
+    }
   };
 
   return (
@@ -111,8 +118,13 @@ export default function Login() {
             </Text>
 
             <Text style={styles.subtitle}>
-              Login to continue to StayFit
+              {signup === "verify"
+                ? "Account created. Verify your email, then log in."
+                : signup === "success"
+                  ? "Account created. Log in with your email and password."
+                  : "Login to continue to StayFit"}
             </Text>
+            {loginError ? <Text style={styles.errorText}>{loginError}</Text> : null}
           </View>
 
           {/* LOGIN CARD */}
@@ -187,6 +199,7 @@ export default function Login() {
 
             <TouchableOpacity
               style={styles.forgot}
+              onPress={handlePasswordReset}
               activeOpacity={0.7}
             >
               <Text style={styles.forgotText}>
@@ -199,10 +212,11 @@ export default function Login() {
             <TouchableOpacity
               style={styles.button}
               onPress={handleLogin}
+              disabled={isSubmitting}
               activeOpacity={0.8}
             >
               <Text style={styles.buttonText}>
-                LOG IN
+                {isSubmitting ? "SIGNING IN..." : "LOG IN"}
               </Text>
 
               <Ionicons
@@ -231,7 +245,7 @@ export default function Login() {
             </TouchableOpacity>
           </View>
 
-          {/* DEMO ACCOUNT */}
+          {/* BACKEND SETUP */}
 
           <View style={styles.demoCard}>
 
@@ -243,16 +257,12 @@ export default function Login() {
               />
 
               <Text style={styles.demoTitle}>
-                Demo Login
+                Supabase Account
               </Text>
             </View>
 
             <Text style={styles.demoText}>
-              Member: member@stayfit.com
-            </Text>
-
-            <Text style={styles.demoText}>
-              Password: member123
+              Sign in with the email and password you registered with.
             </Text>
 
           </View>
@@ -325,6 +335,15 @@ const styles = StyleSheet.create({
     color: "#98A2B3",
     fontSize: 10,
     marginTop: 6,
+  },
+
+  errorText: {
+    color: "#FF8585",
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: "center",
+    marginTop: 10,
+    paddingHorizontal: 12,
   },
 
   /* LOGIN CARD */

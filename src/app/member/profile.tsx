@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { useEffect, useState } from "react";
+import { supabase } from "../../lib/supabase";
 import {
-    Alert,
     SafeAreaView,
     ScrollView,
     StyleSheet,
@@ -9,10 +10,35 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
+import { loadMembership, loadProfile, getErrorMessage } from "../../lib/member-data";
 
 export default function Profile() {
-  const handleMenuPress = (item: string) => {
-    Alert.alert(item, `${item} page will be available soon.`);
+  const [name, setName] = useState("Member");
+  const [email, setEmail] = useState("");
+  const [membershipLabel, setMembershipLabel] = useState("No active membership");
+  const [avatar, setAvatar] = useState("M");
+  const [loadError, setLoadError] = useState("");
+  const [logoutError, setLogoutError] = useState("");
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  useEffect(() => { void Promise.all([loadProfile(), loadMembership()]).then(([p, m]) => {
+    const displayName = p.full_name || p.email || "Member";
+    setName(displayName); setEmail(p.email);
+    setAvatar(displayName.split(/\s+/).slice(0, 2).map((part: string) => part[0]).join("").toUpperCase());
+    setMembershipLabel(m ? `${m.plan_name} • ${m.status.toUpperCase()}` : "No active membership");
+  }).catch((e) => setLoadError(getErrorMessage(e))); }, []);
+
+  const handleLogout = async () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    setLogoutError("");
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      router.replace("/login");
+    } catch (error) {
+      setLogoutError(getErrorMessage(error));
+      setIsLoggingOut(false);
+    }
   };
 
   return (
@@ -26,9 +52,7 @@ export default function Profile() {
           <Text style={styles.headerTitle}>Profile</Text>
 
           <TouchableOpacity
-            onPress={() =>
-              Alert.alert("Notifications", "No new notifications.")
-            }
+            onPress={() => router.push("/member/notifications")}
           >
             <Ionicons
               name="ellipsis-vertical"
@@ -41,14 +65,16 @@ export default function Profile() {
         {/* PROFILE */}
         <View style={styles.profileSection}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>DJ</Text>
+            <Text style={styles.avatarText}>{avatar}</Text>
           </View>
 
-          <Text style={styles.name}>David Jay Ongcoy</Text>
+          <Text style={styles.name}>{name}</Text>
 
           <Text style={styles.status}>
-            Premium Member • ACTIVE
+            {membershipLabel}
           </Text>
+          {!!email && <Text style={styles.status}>{email}</Text>}
+          {!!loadError && <Text style={styles.status}>{loadError}</Text>}
         </View>
 
         {/* MENU */}
@@ -101,43 +127,13 @@ export default function Profile() {
             }
           />
 
-          <ProfileItem
-            title="Referral & Rewards"
-            icon="gift-outline"
-            onPress={() =>
-              router.push("/member/rewards")
-            }
-          />
-
-          <ProfileItem
-            title="Help & Support"
-            icon="help-circle-outline"
-            onPress={() =>
-              router.push("/member/support")
-            }
-          />
         </View>
 
         {/* LOGOUT */}
         <TouchableOpacity
           style={styles.logoutButton}
-          onPress={() =>
-            Alert.alert(
-              "Logout",
-              "Are you sure you want to logout?",
-              [
-                {
-                  text: "Cancel",
-                  style: "cancel",
-                },
-                {
-                  text: "Logout",
-                  style: "destructive",
-                  onPress: () => router.replace("/login"),
-                },
-              ]
-            )
-          }
+          onPress={() => void handleLogout()}
+          disabled={isLoggingOut}
         >
           <Ionicons
             name="log-out-outline"
@@ -145,8 +141,9 @@ export default function Profile() {
             color="#FF5C5C"
           />
 
-          <Text style={styles.logoutText}>Logout</Text>
+          <Text style={styles.logoutText}>{isLoggingOut ? "Signing out…" : "Logout"}</Text>
         </TouchableOpacity>
+        {!!logoutError && <Text style={styles.status}>{logoutError}</Text>}
       </ScrollView>
 
       {/* BLUE BOTTOM LINE */}

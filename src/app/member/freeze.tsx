@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
     Alert,
     ScrollView,
@@ -10,6 +10,8 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
+import { supabase } from "../../lib/supabase";
+import { currentUserId, loadMembership, getErrorMessage } from "../../lib/member-data";
 
 const BLUE = "#1769FF";
 const durations = [7, 14, 30];
@@ -17,28 +19,36 @@ const durations = [7, 14, 30];
 export default function FreezeScreen() {
   const [duration, setDuration] = useState(7);
   const [reason, setReason] = useState("");
+  const [planName, setPlanName] = useState("No membership found");
+  const [membershipStatus, setMembershipStatus] = useState("—");
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const [requestStatus, setRequestStatus] = useState("");
 
-  const submitRequest = () => {
+  useEffect(() => { void (async () => {
+    try {
+      const [m, userId] = await Promise.all([loadMembership(), currentUserId()]);
+      if (m) { setPlanName(m.plan_name); setMembershipStatus(m.status.toUpperCase()); }
+      const { data, error } = await supabase.from("freeze_requests").select("status,created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (error) throw error;
+      if (data) setRequestStatus(`Latest request: ${data.status.toUpperCase()} · ${new Date(data.created_at).toLocaleDateString()}`);
+    } catch (e) { setError(getErrorMessage(e)); }
+  })(); }, []);
+
+  const submitRequest = async () => {
     if (!reason.trim()) {
       Alert.alert("Reason Required", "Please enter a reason for freezing your membership.");
       return;
     }
 
-    Alert.alert(
-      "Submit Freeze Request",
-      `Request a ${duration}-day membership freeze?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Submit",
-          onPress: () =>
-            Alert.alert(
-              "Request Submitted",
-              "This is a demo request. It has not been saved or sent to the administrator."
-            ),
-        },
-      ]
-    );
+    try {
+      const userId = await currentUserId();
+      const { error } = await supabase.from("freeze_requests").insert({ user_id: userId, duration_days: duration, reason: reason.trim() });
+      if (error) throw error;
+      setNotice("Your freeze request is saved and awaits administrator approval.");
+      setRequestStatus("Latest request: PENDING · just now");
+      setReason("");
+    } catch (e) { setError(getErrorMessage(e)); }
   };
 
   return (
@@ -59,11 +69,11 @@ export default function FreezeScreen() {
             <Ionicons name="snow-outline" size={26} color="#4D8DFF" />
           </View>
           <View style={styles.statusInfo}>
-            <Text style={styles.planName}>Premium Plan</Text>
+            <Text style={styles.planName}>{planName}</Text>
             <Text style={styles.muted}>Current membership</Text>
           </View>
           <View style={styles.status}>
-            <Text style={styles.statusText}>ACTIVE</Text>
+            <Text style={styles.statusText}>{membershipStatus}</Text>
           </View>
         </View>
 
@@ -110,6 +120,9 @@ export default function FreezeScreen() {
           maxLength={300}
         />
         <Text style={styles.counter}>{reason.length}/300</Text>
+        {!!error && <Text style={styles.noticeText}>{error}</Text>}
+        {!!notice && <Text style={styles.noticeText}>{notice}</Text>}
+        {!!requestStatus && <Text style={styles.noticeText}>{requestStatus}</Text>}
 
         <View style={styles.notice}>
           <Ionicons name="information-circle-outline" size={22} color="#4D8DFF" />

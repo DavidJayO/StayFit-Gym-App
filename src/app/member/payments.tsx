@@ -1,53 +1,46 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
-    Alert,
     ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
     View,
 } from "react-native";
+import { supabase } from "../../lib/supabase";
+import { currentUserId, getErrorMessage } from "../../lib/member-data";
 
 const BLUE = "#1769FF";
 
-const payments = [
-  {
-    id: "PAY-001",
-    title: "Premium Membership",
-    date: "Oct 01, 2026",
-    amount: "₱12,000.00",
-    status: "Paid",
-    method: "GCash",
-  },
-  {
-    id: "PAY-002",
-    title: "Group Fitness Class",
-    date: "Sep 18, 2026",
-    amount: "₱250.00",
-    status: "Paid",
-    method: "Cash",
-  },
-  {
-    id: "PAY-003",
-    title: "Daily Gym Pass",
-    date: "Sep 10, 2026",
-    amount: "₱250.00",
-    status: "Pending",
-    method: "GCash",
-  },
-];
-
 export default function PaymentsScreen() {
   const [method, setMethod] = useState("GCash");
+  const [payments, setPayments] = useState<any[]>([]);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
 
-  const handlePayment = () => {
-    Alert.alert(
-      "Payment Method",
-      `Selected method: ${method}\n\nThis is a demo. No actual payment will be processed.`,
-      [{ text: "OK" }]
-    );
+  const load = async () => {
+    try {
+      const userId = await currentUserId();
+      const [paymentResult, preferenceResult] = await Promise.all([
+        supabase.from("payments").select("id,description,amount,payment_method,status,paid_at,created_at").eq("user_id", userId).order("created_at", { ascending: false }),
+        supabase.from("member_preferences").select("payment_method").eq("user_id", userId).maybeSingle(),
+      ]);
+      if (paymentResult.error) throw paymentResult.error;
+      if (preferenceResult.error) throw preferenceResult.error;
+      setPayments((paymentResult.data ?? []).map((p) => ({ id: p.id, title: p.description, date: new Date(p.paid_at ?? p.created_at).toLocaleDateString(), amount: `₱${Number(p.amount).toFixed(2)}`, status: p.status[0].toUpperCase() + p.status.slice(1), method: p.payment_method })));
+      if (preferenceResult.data?.payment_method) setMethod(preferenceResult.data.payment_method);
+    } catch (e) { setError(getErrorMessage(e)); }
+  };
+  useEffect(() => { void load(); }, []);
+
+  const handlePayment = async () => {
+    try {
+      const userId = await currentUserId();
+      const { error } = await supabase.from("member_preferences").upsert({ user_id: userId, payment_method: method, updated_at: new Date().toISOString() });
+      if (error) throw error;
+      setNotice(`Preferred payment method saved: ${method}. The app does not yet process payments online.`);
+    } catch (e) { setError(getErrorMessage(e)); }
   };
 
   return (
@@ -62,13 +55,13 @@ export default function PaymentsScreen() {
           <View style={styles.summaryIcon}>
             <Ionicons name="wallet-outline" size={25} color="#4D8DFF" />
           </View>
-          <Text style={styles.summaryLabel}>Membership Plan</Text>
-          <Text style={styles.summaryAmount}>₱12,000.00</Text>
+          <Text style={styles.summaryLabel}>Payment records</Text>
+          <Text style={styles.summaryAmount}>{payments.length}</Text>
           <View style={styles.paidBadge}>
-            <Ionicons name="checkmark-circle" size={15} color="#54D98C" />
-            <Text style={styles.paidText}>Paid</Text>
+            <Ionicons name="receipt-outline" size={15} color="#54D98C" />
+            <Text style={styles.paidText}>Ledger</Text>
           </View>
-          <Text style={styles.summaryNote}>Premium Plan • 2026</Text>
+          <Text style={styles.summaryNote}>Transactions recorded by the gym</Text>
         </View>
 
         <Text style={styles.sectionTitle}>Payment Method</Text>
@@ -106,9 +99,11 @@ export default function PaymentsScreen() {
           ))}
         </View>
 
+        {!!error && <Text style={styles.noticeText}>{error}</Text>}
+        {!!notice && <Text style={styles.noticeText}>{notice}</Text>}
         <TouchableOpacity style={styles.payButton} onPress={handlePayment}>
           <Ionicons name="card-outline" size={20} color="#FFFFFF" />
-          <Text style={styles.buttonText}>Continue to Payment</Text>
+          <Text style={styles.buttonText}>Save Payment Preference</Text>
         </TouchableOpacity>
 
         <Text style={styles.sectionTitle}>Transaction History</Text>
@@ -158,6 +153,7 @@ export default function PaymentsScreen() {
           </View>
         ))}
 
+        {payments.length === 0 && <Text style={styles.noticeText}>No payment records yet. Confirmed payments will appear here after staff records them.</Text>}
         <View style={styles.notice}>
           <Ionicons
             name="information-circle-outline"
@@ -165,8 +161,7 @@ export default function PaymentsScreen() {
             color="#4D8DFF"
           />
           <Text style={styles.noticeText}>
-            Payment records shown are sample data. Verify payments with the
-            gym administrator before marking a transaction as paid.
+            Choosing a payment method does not charge you. The gym records confirmed transactions here.
           </Text>
         </View>
 

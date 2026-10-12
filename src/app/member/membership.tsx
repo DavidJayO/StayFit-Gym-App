@@ -1,31 +1,25 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useEffect, useState } from "react";
+import { supabase } from "../../lib/supabase";
+import { currentUserId, formatDate, loadMembership, Membership, getErrorMessage } from "../../lib/member-data";
 
 const BLUE = "#1769FF";
 
-const benefits = [
-  "Unlimited gym access",
-  "Free group fitness classes",
-  "Access to gym equipment",
-  "Monthly fitness assessment",
-  "Member-only rewards",
-];
-
 export default function MembershipScreen() {
-  const renewMembership = () => {
-    Alert.alert(
-      "Renew Membership",
-      "Your renewal request will be processed by the gym administrator.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Continue",
-          onPress: () =>
-            Alert.alert("Demo Only", "Membership renewal is not connected to a backend yet."),
-        },
-      ]
-    );
+  const [membership, setMembership] = useState<Membership | null>(null);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => { void loadMembership().then(setMembership).catch((e) => setError(getErrorMessage(e))); }, []);
+
+  const renewMembership = async () => {
+    try {
+      const userId = await currentUserId();
+      const { error } = await supabase.from("membership_renewal_requests").insert({ user_id: userId, membership_id: membership?.id ?? null });
+      if (error) throw error;
+      setNotice("Renewal request submitted. The gym will contact you about payment and activation.");
+    } catch (e) { setError(getErrorMessage(e)); }
   };
 
   return (
@@ -38,25 +32,25 @@ export default function MembershipScreen() {
           <View style={styles.planHeader}>
             <View>
               <Text style={styles.label}>CURRENT PLAN</Text>
-              <Text style={styles.planName}>Premium Plan</Text>
+              <Text style={styles.planName}>{membership?.plan_name ?? "No membership on file"}</Text>
             </View>
             <View style={styles.status}>
-              <Text style={styles.statusText}>ACTIVE</Text>
+              <Text style={styles.statusText}>{membership?.status?.toUpperCase() ?? "NONE"}</Text>
             </View>
           </View>
 
-          <Text style={styles.price}>₱12,000</Text>
-          <Text style={styles.muted}>12-month membership</Text>
+          <Text style={styles.price}>{membership ? "Membership on file" : "No plan assigned"}</Text>
+          <Text style={styles.muted}>Plan benefits and pricing are provided by the gym.</Text>
 
           <View style={styles.divider} />
 
           <View style={styles.detailRow}>
             <Text style={styles.muted}>Start Date</Text>
-            <Text style={styles.detail}>Jan 01, 2026</Text>
+            <Text style={styles.detail}>{formatDate(membership?.starts_on)}</Text>
           </View>
           <View style={styles.detailRow}>
             <Text style={styles.muted}>Expiration Date</Text>
-            <Text style={styles.detail}>Dec 31, 2026</Text>
+            <Text style={styles.detail}>{formatDate(membership?.ends_on)}</Text>
           </View>
           <View style={styles.detailRow}>
             <Text style={styles.muted}>Renewal</Text>
@@ -64,17 +58,8 @@ export default function MembershipScreen() {
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Membership Benefits</Text>
-
-        <View style={styles.card}>
-          {benefits.map((benefit) => (
-            <View key={benefit} style={styles.benefitRow}>
-              <Ionicons name="checkmark-circle" size={20} color="#54D98C" />
-              <Text style={styles.benefitText}>{benefit}</Text>
-            </View>
-          ))}
-        </View>
-
+        {!!error && <Text style={styles.muted}>{error}</Text>}
+        {!!notice && <Text style={styles.muted}>{notice}</Text>}
         <TouchableOpacity style={styles.primaryButton} onPress={renewMembership}>
           <Ionicons name="refresh-outline" size={20} color="#FFFFFF" />
           <Text style={styles.buttonText}>Renew Membership</Text>

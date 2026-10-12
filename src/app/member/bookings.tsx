@@ -1,9 +1,8 @@
 
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
-    Alert,
     SafeAreaView,
     ScrollView,
     StyleSheet,
@@ -11,68 +10,38 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
+import { supabase } from "../../lib/supabase";
+import { currentUserId, formatTime, getErrorMessage } from "../../lib/member-data";
 
-const initialBookings = [
-  {
-    id: "1",
-    name: "Full Body Workout",
-    trainer: "Coach Michael",
-    date: "Sep 18, 2026",
-    time: "5:00 PM - 6:00 PM",
-    category: "Strength",
-    icon: "barbell-outline" as const,
-    status: "Upcoming",
-  },
-  {
-    id: "2",
-    name: "HIIT Training",
-    trainer: "Coach Sarah",
-    date: "Sep 20, 2026",
-    time: "6:30 PM - 7:15 PM",
-    category: "HIIT",
-    icon: "flash-outline" as const,
-    status: "Upcoming",
-  },
-  {
-    id: "3",
-    name: "Morning Yoga",
-    trainer: "Coach Angela",
-    date: "Sep 12, 2026",
-    time: "8:30 AM - 9:15 AM",
-    category: "Yoga",
-    icon: "leaf-outline" as const,
-    status: "Completed",
-  },
-];
-
-type Booking = (typeof initialBookings)[number];
+type Booking = { id: string; name: string; trainer: string; date: string; time: string; category: string; icon: "barbell-outline" | "flash-outline" | "leaf-outline"; status: "Upcoming" | "Completed"; dbStatus: string };
 
 export default function Bookings() {
-  const [bookings, setBookings] = useState(initialBookings);
+  const [bookings, setBookings] = useState<Booking[]>([]);
   const [selectedTab, setSelectedTab] = useState("Upcoming");
+  const [error, setError] = useState("");
+
+  const loadBookings = async () => {
+    try {
+      const userId = await currentUserId();
+      const { data, error } = await supabase.from("class_bookings").select("id,status,gym_classes(name,category,trainer_name,starts_at,duration_minutes)").eq("user_id", userId).order("created_at", { ascending: false });
+      if (error) throw error;
+      setBookings(((data ?? []) as any[]).map((row) => {
+        const item = row.gym_classes;
+        return { id: row.id, name: item?.name ?? "Class", trainer: item?.trainer_name ?? "Gym team", date: new Date(item?.starts_at).toLocaleDateString(), time: item ? `${formatTime(item.starts_at)} (${item.duration_minutes} min)` : "", category: item?.category ?? "Class", icon: item?.category?.toLowerCase().includes("yoga") ? "leaf-outline" : item?.category?.toLowerCase().includes("hiit") ? "flash-outline" : "barbell-outline", status: item && new Date(item.starts_at) < new Date() ? "Completed" : "Upcoming", dbStatus: row.status };
+      }));
+      setError("");
+    } catch (e) { setError(getErrorMessage(e)); }
+  };
+  useEffect(() => { void loadBookings(); }, []);
 
   const visibleBookings = bookings.filter(
-    (booking) => booking.status === selectedTab
+    (booking) => booking.status === selectedTab && !["cancelled", "rejected"].includes(booking.dbStatus)
   );
 
-  const cancelBooking = (booking: Booking) => {
-    Alert.alert(
-      "Cancel Booking",
-      `Are you sure you want to cancel ${booking.name}?`,
-      [
-        { text: "Keep Booking", style: "cancel" },
-        {
-          text: "Cancel Booking",
-          style: "destructive",
-          onPress: () => {
-            setBookings((current) =>
-              current.filter((item) => item.id !== booking.id)
-            );
-            Alert.alert("Booking Cancelled", "Your booking was removed.");
-          },
-        },
-      ]
-    );
+  const cancelBooking = async (booking: Booking) => {
+    const { error } = await supabase.from("class_bookings").update({ status: "cancelled" }).eq("id", booking.id).eq("status", "pending");
+    if (error) setError(error.message);
+    else await loadBookings();
   };
 
   return (
@@ -108,6 +77,7 @@ export default function Bookings() {
         <Text style={styles.subtitle}>
           Manage your reservations and stay on schedule.
         </Text>
+        {!!error && <Text style={styles.detailText}>{error}</Text>}
 
         <View style={styles.statsCard}>
           <View style={styles.statsIcon}>
@@ -205,7 +175,7 @@ export default function Bookings() {
                         styles.completedText,
                     ]}
                   >
-                    {booking.status.toUpperCase()}
+                    {booking.status === "Completed" ? "COMPLETED" : booking.dbStatus === "approved" ? "BOOKED" : "PENDING"}
                   </Text>
                 </View>
               </View>
@@ -234,7 +204,7 @@ export default function Bookings() {
                 <Text style={styles.categoryText}>{booking.category}</Text>
               </View>
 
-              {booking.status === "Upcoming" && (
+              {booking.status === "Upcoming" && booking.dbStatus === "pending" && (
                 <View style={styles.actions}>
                   <TouchableOpacity
                     style={styles.accessButton}

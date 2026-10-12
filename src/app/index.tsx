@@ -1,4 +1,5 @@
 import { router } from "expo-router";
+import { useEffect } from "react";
 import {
   Image,
   SafeAreaView,
@@ -7,8 +8,26 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { supabase } from "../lib/supabase";
 
 export default function Index() {
+  useEffect(() => {
+    let active = true;
+    void supabase.auth.getSession().then(async ({ data }) => {
+      const user = data.session?.user;
+      if (!active || !user) return;
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (active && profile) {
+        router.replace(profile.role === "admin" ? "/admin/dashboard" : "/member/dashboard");
+      }
+    });
+    return () => { active = false; };
+  }, []);
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>

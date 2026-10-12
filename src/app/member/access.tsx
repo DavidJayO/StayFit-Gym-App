@@ -1,8 +1,8 @@
 
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { useEffect, useState } from "react";
 import {
-    Alert,
     SafeAreaView,
     ScrollView,
     StyleSheet,
@@ -10,14 +10,15 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
+import { loadMembership, loadProfile, Membership, getErrorMessage, formatDate } from "../../lib/member-data";
 
 export default function Access() {
-  const showDemoNotice = () => {
-    Alert.alert(
-      "Demo Access Pass",
-      "This is a preview only. A real QR code must be generated and validated by the gym's backend before it can be used for entry."
-    );
-  };
+  const [membership, setMembership] = useState<Membership | null>(null);
+  const [name, setName] = useState("");
+  const [memberId, setMemberId] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => { void Promise.all([loadMembership(), loadProfile()]).then(([m, p]) => { setMembership(m); setName(p.full_name || p.email); setMemberId(p.id.slice(0, 8).toUpperCase()); }).catch((e) => setError(getErrorMessage(e))); }, []);
+  const active = !!membership && membership.status === "active" && new Date(`${membership.ends_on}T23:59:59`) >= new Date();
 
   return (
     <SafeAreaView style={styles.container}>
@@ -49,9 +50,7 @@ export default function Access() {
       >
         <Text style={styles.eyebrow}>STAYFIT GYM</Text>
         <Text style={styles.title}>Your Access Pass</Text>
-        <Text style={styles.subtitle}>
-          Your membership, ready for your next workout.
-        </Text>
+        <Text style={styles.subtitle}>Membership status from your account. Gym entry still requires staff verification.</Text>
 
         <View style={styles.statusCard}>
           <View style={styles.statusIcon}>
@@ -62,13 +61,13 @@ export default function Access() {
             />
           </View>
           <View style={styles.statusInfo}>
-            <Text style={styles.statusTitle}>Membership Active</Text>
+            <Text style={styles.statusTitle}>{active ? "Membership Active" : "No active membership"}</Text>
             <Text style={styles.statusSubtitle}>
-              Premium Plan • Valid until Dec 31, 2026
+              {membership ? `${membership.plan_name} • Valid until ${formatDate(membership.ends_on)}` : "A membership pass has not been assigned yet."}
             </Text>
           </View>
           <View style={styles.activeBadge}>
-            <Text style={styles.activeText}>ACTIVE</Text>
+            <Text style={styles.activeText}>{active ? "ACTIVE" : "INACTIVE"}</Text>
           </View>
         </View>
 
@@ -79,7 +78,7 @@ export default function Access() {
             </View>
             <View style={styles.passHeaderText}>
               <Text style={styles.gymName}>STAYFIT GYM</Text>
-              <Text style={styles.passType}>MEMBER ACCESS PASS</Text>
+              <Text style={styles.passType}>MEMBERSHIP RECORD</Text>
             </View>
             <Ionicons name="shield-checkmark" size={23} color="#4D8DFF" />
           </View>
@@ -88,32 +87,32 @@ export default function Access() {
 
           <View style={styles.memberInfo}>
             <Text style={styles.memberLabel}>MEMBER NAME</Text>
-            <Text style={styles.memberName}>David Jay Ongcoy</Text>
-            <Text style={styles.memberId}>MEMBER ID: SF-DEMO-001</Text>
+            <Text style={styles.memberName}>{name || "Member"}</Text>
+            <Text style={styles.memberId}>MEMBER ID: {memberId || "—"}</Text>
           </View>
 
           <TouchableOpacity
             style={styles.qrContainer}
-            onPress={showDemoNotice}
+            onPress={() => setError("Digital QR entry has not been enabled by the gym yet. Show your member profile to staff.")}
             activeOpacity={0.85}
           >
             <View style={styles.qrPlaceholder}>
               <Ionicons name="qr-code" size={112} color="#1769FF" />
             </View>
-            <Text style={styles.qrTitle}>DEMO ACCESS PASS</Text>
+            <Text style={styles.qrTitle}>{active ? "NO DIGITAL QR ISSUED" : "NO ACTIVE PASS"}</Text>
             <Text style={styles.qrSubtitle}>
-              Tap to view access information
+              {active ? "Show your account details to staff for manual verification" : "Contact the gym to activate a membership"}
             </Text>
           </TouchableOpacity>
 
           <View style={styles.passFooter}>
             <View>
               <Text style={styles.memberLabel}>MEMBERSHIP</Text>
-              <Text style={styles.passFooterValue}>Premium</Text>
+              <Text style={styles.passFooterValue}>{membership?.plan_name ?? "—"}</Text>
             </View>
             <View style={styles.passFooterRight}>
               <Text style={styles.memberLabel}>STATUS</Text>
-              <Text style={styles.passFooterStatus}>ACTIVE</Text>
+              <Text style={styles.passFooterStatus}>{membership?.status?.toUpperCase() ?? "NONE"}</Text>
             </View>
           </View>
         </View>
@@ -127,11 +126,11 @@ export default function Access() {
           <View style={styles.noticeInfo}>
             <Text style={styles.noticeTitle}>How to access the gym</Text>
             <Text style={styles.noticeText}>
-              Show your valid access pass to authorized gym personnel.
-              Follow their instructions for entry verification.
+              No scannable QR has been issued by the backend. Show your account details to gym personnel for entry verification.
             </Text>
           </View>
         </View>
+        {!!error && <Text style={styles.noticeText}>{error}</Text>}
 
         <TouchableOpacity
           style={styles.membershipButton}

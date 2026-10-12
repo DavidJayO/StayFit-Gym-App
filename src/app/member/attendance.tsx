@@ -1,6 +1,7 @@
 
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { useEffect, useState } from "react";
 import {
     SafeAreaView,
     ScrollView,
@@ -9,43 +10,28 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
-
-const attendanceRecords = [
-  {
-    id: "1",
-    date: "Oct 09, 2026",
-    time: "05:12 PM",
-    type: "QR Access",
-    duration: "1h 35m",
-    status: "Completed",
-  },
-  {
-    id: "2",
-    date: "Oct 07, 2026",
-    time: "06:20 AM",
-    type: "QR Access",
-    duration: "1h 10m",
-    status: "Completed",
-  },
-  {
-    id: "3",
-    date: "Oct 05, 2026",
-    time: "04:45 PM",
-    type: "Manual Check-in",
-    duration: "1h 25m",
-    status: "Completed",
-  },
-  {
-    id: "4",
-    date: "Oct 03, 2026",
-    time: "07:00 AM",
-    type: "QR Access",
-    duration: "55 min",
-    status: "Completed",
-  },
-];
+import { supabase } from "../../lib/supabase";
+import { currentUserId, getErrorMessage } from "../../lib/member-data";
 
 export default function Attendance() {
+  const [attendanceRecords, setAttendanceRecords] = useState<any[]>([]);
+  const [error, setError] = useState("");
+  useEffect(() => { void (async () => {
+    try {
+      const userId = await currentUserId();
+      const { data, error } = await supabase.from("attendance").select("id,checked_in_at,checked_out_at").eq("user_id", userId).order("checked_in_at", { ascending: false });
+      if (error) throw error;
+      setAttendanceRecords((data ?? []).map((r) => {
+        const minutes = r.checked_out_at ? Math.max(0, Math.round((new Date(r.checked_out_at).getTime() - new Date(r.checked_in_at).getTime()) / 60000)) : null;
+        return { id: r.id, date: new Date(r.checked_in_at).toLocaleDateString(), time: new Date(r.checked_in_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), type: "Gym check-in", duration: minutes === null ? "In progress" : `${Math.floor(minutes / 60)}h ${minutes % 60}m`, completed: minutes !== null, checkedAt: r.checked_in_at };
+      }));
+    } catch (e) { setError(getErrorMessage(e)); }
+  })(); }, []);
+  const now = new Date();
+  const visitsThisWeek = attendanceRecords.filter((r) => new Date(r.checkedAt).getTime() >= now.getTime() - 7 * 86400000).length;
+  const visitsThisMonth = attendanceRecords.filter((r) => { const d = new Date(r.checkedAt); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); }).length;
+  const completedRecords = attendanceRecords.filter((r) => r.completed);
+  const avgMinutes = completedRecords.length ? Math.round(completedRecords.reduce((total, r) => total + parseInt(r.duration, 10) * 60 + parseInt(r.duration.split("h ")[1], 10), 0) / completedRecords.length) : 0;
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -91,9 +77,9 @@ export default function Attendance() {
             </View>
             <View style={styles.overviewInfo}>
               <Text style={styles.overviewLabel}>TOTAL VISITS</Text>
-              <Text style={styles.overviewNumber}>18</Text>
+              <Text style={styles.overviewNumber}>{attendanceRecords.length}</Text>
               <Text style={styles.overviewCaption}>
-                Demonstration attendance data
+                Visits recorded by gym staff
               </Text>
             </View>
           </View>
@@ -102,17 +88,17 @@ export default function Attendance() {
 
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>4</Text>
+              <Text style={styles.statValue}>{visitsThisWeek}</Text>
               <Text style={styles.statLabel}>This week</Text>
             </View>
             <View style={styles.statSeparator} />
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>6</Text>
+              <Text style={styles.statValue}>{visitsThisMonth}</Text>
               <Text style={styles.statLabel}>This month</Text>
             </View>
             <View style={styles.statSeparator} />
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>1.2h</Text>
+              <Text style={styles.statValue}>{avgMinutes ? `${Math.floor(avgMinutes / 60)}h ${avgMinutes % 60}m` : "—"}</Text>
               <Text style={styles.statLabel}>Avg. visit</Text>
             </View>
           </View>
@@ -136,6 +122,8 @@ export default function Attendance() {
             {attendanceRecords.length} records
           </Text>
         </View>
+        {!!error && <Text style={styles.noteText}>{error}</Text>}
+        {attendanceRecords.length === 0 && !error && <Text style={styles.noteText}>No visits are recorded yet. Gym staff add verified check-ins.</Text>}
 
         {attendanceRecords.map((record) => (
           <View key={record.id} style={styles.recordCard}>
@@ -163,7 +151,7 @@ export default function Attendance() {
             <View style={styles.recordRight}>
               <Text style={styles.duration}>{record.duration}</Text>
               <View style={styles.completedBadge}>
-                <Text style={styles.completedText}>COMPLETED</Text>
+                <Text style={styles.completedText}>{record.completed ? "COMPLETED" : "CHECKED IN"}</Text>
               </View>
             </View>
           </View>
@@ -176,8 +164,7 @@ export default function Attendance() {
             color="#4D8DFF"
           />
           <Text style={styles.noteText}>
-            These records are sample data. Actual visit times and durations
-            should come from verified gym check-in and check-out events.
+            Attendance is read-only here and reflects check-in and check-out events recorded by gym staff.
           </Text>
         </View>
 

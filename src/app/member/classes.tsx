@@ -1,7 +1,7 @@
 
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
     Alert,
     SafeAreaView,
@@ -11,70 +11,50 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
+import { supabase } from "../../lib/supabase";
+import { currentUserId, formatTime, getErrorMessage } from "../../lib/member-data";
 
 const BLUE = "#1769FF";
 
 const categories = ["All", "Strength", "Cardio", "HIIT", "Yoga"];
 
-const initialClasses = [
-  {
-    id: "1",
-    name: "Full Body Workout",
-    category: "Strength",
-    trainer: "Coach Michael",
-    time: "5:00 PM - 6:00 PM",
-    duration: "60 min",
-    booked: 12,
-    capacity: 20,
-    icon: "barbell-outline" as const,
-  },
-  {
-    id: "2",
-    name: "HIIT Training",
-    category: "HIIT",
-    trainer: "Coach Sarah",
-    time: "6:30 PM - 7:15 PM",
-    duration: "45 min",
-    booked: 18,
-    capacity: 20,
-    icon: "flash-outline" as const,
-  },
-  {
-    id: "3",
-    name: "Cardio Burn",
-    category: "Cardio",
-    trainer: "Coach Alex",
-    time: "7:30 AM - 8:15 AM",
-    duration: "45 min",
-    booked: 8,
-    capacity: 15,
-    icon: "heart-outline" as const,
-  },
-  {
-    id: "4",
-    name: "Morning Yoga",
-    category: "Yoga",
-    trainer: "Coach Angela",
-    time: "8:30 AM - 9:15 AM",
-    duration: "45 min",
-    booked: 6,
-    capacity: 15,
-    icon: "leaf-outline" as const,
-  },
-];
+type GymClass = { id: string; name: string; category: string; trainer_name: string; starts_at: string; duration_minutes: number; capacity: number; booked_count: number };
 
 export default function Classes() {
   const [selectedCategory, setSelectedCategory] = useState("All");
+  const [classes, setClasses] = useState<GymClass[]>([]);
   const [bookedClasses, setBookedClasses] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadClasses = async () => {
+    try {
+      setError("");
+      const [{ data, error: classError }, userId] = await Promise.all([
+        supabase.from("gym_classes").select("id,name,category,trainer_name,starts_at,duration_minutes,capacity").eq("is_active", true).gt("starts_at", new Date().toISOString()).order("starts_at"),
+        currentUserId(),
+      ]);
+      if (classError) throw classError;
+      const items = (data ?? []) as any[];
+      const counts = items.length ? await supabase.rpc("get_class_booking_counts", { p_class_ids: items.map((item) => item.id) }) : { data: [], error: null };
+      if (counts.error) throw counts.error;
+      setClasses(items.map((item) => ({ ...item, booked_count: (counts.data ?? []).find((count: any) => count.class_id === item.id)?.booked_count ?? 0 })));
+      const { data: mine, error: bookingError } = await supabase.from("class_bookings").select("class_id").eq("user_id", userId).in("status", ["pending", "approved"]);
+      if (bookingError) throw bookingError;
+      setBookedClasses((mine ?? []).map((booking) => booking.class_id));
+    } catch (e) { setError(getErrorMessage(e)); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { void loadClasses(); }, []);
 
   const filteredClasses =
     selectedCategory === "All"
-      ? initialClasses
-      : initialClasses.filter(
+      ? classes
+      : classes.filter(
           (item) => item.category === selectedCategory
         );
 
-  const handleBooking = (id: string, name: string) => {
+  const handleBooking = async (id: string, name: string) => {
     if (bookedClasses.includes(id)) {
       Alert.alert(
         "Already Booked",
@@ -83,30 +63,19 @@ export default function Classes() {
       return;
     }
 
-    const gymClass = initialClasses.find((item) => item.id === id);
+    const gymClass = classes.find((item) => item.id === id);
 
-    if (!gymClass || gymClass.booked >= gymClass.capacity) {
+    if (!gymClass || gymClass.booked_count >= gymClass.capacity) {
       Alert.alert("Class Full", "There are no available slots.");
       return;
     }
 
-    Alert.alert(
-      "Confirm Booking",
-      `Would you like to book ${name}?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Confirm",
-          onPress: () => {
-            setBookedClasses((current) => [...current, id]);
-            Alert.alert(
-              "Booking Successful",
-              `${name} has been added to your temporary bookings.`
-            );
-          },
-        },
-      ]
-    );
+    try {
+      const { error } = await supabase.rpc("book_class", { p_class_id: id });
+      if (error) throw error;
+      await loadClasses();
+      Alert.alert("Request submitted", `${name} is now in your bookings and awaits gym confirmation.`);
+    } catch (e) { Alert.alert("Booking failed", getErrorMessage(e)); }
   };
 
   return (
@@ -197,16 +166,21 @@ export default function Classes() {
           <Text style={styles.count}>{filteredClasses.length} classes</Text>
         </View>
 
+        {loading && <Text style={styles.detailText}>Loading classes…</Text>}
+        {!!error && <Text style={styles.detailText}>{error}</Text>}
+        {!loading && !error && filteredClasses.length === 0 && <Text style={styles.detailText}>No upcoming classes are available yet.</Text>}
+
         {filteredClasses.map((item) => {
           const isBooked = bookedClasses.includes(item.id);
-          const remaining = item.capacity - item.booked;
+          const remaining = item.capacity - item.booked_count;
+          const icon = item.category.toLowerCase().includes("yoga") ? "leaf-outline" : item.category.toLowerCase().includes("hiit") ? "flash-outline" : item.category.toLowerCase().includes("cardio") ? "heart-outline" : "barbell-outline";
 
           return (
             <View key={item.id} style={styles.classCard}>
               <View style={styles.cardTop}>
                 <View style={styles.classIcon}>
                   <Ionicons
-                    name={item.icon}
+                    name={icon as any}
                     size={25}
                     color="#4D8DFF"
                   />
@@ -214,11 +188,11 @@ export default function Classes() {
 
                 <View style={styles.classInfo}>
                   <Text style={styles.className}>{item.name}</Text>
-                  <Text style={styles.trainer}>{item.trainer}</Text>
+                  <Text style={styles.trainer}>{item.trainer_name}</Text>
                 </View>
 
                 <View style={styles.durationBadge}>
-                  <Text style={styles.durationText}>{item.duration}</Text>
+                  <Text style={styles.durationText}>{item.duration_minutes} min</Text>
                 </View>
               </View>
 
@@ -230,7 +204,7 @@ export default function Classes() {
                   size={17}
                   color="#4D8DFF"
                 />
-                <Text style={styles.detailText}>{item.time}</Text>
+                <Text style={styles.detailText}>{new Date(item.starts_at).toLocaleDateString()} · {formatTime(item.starts_at)}</Text>
               </View>
 
               <View style={styles.detailRow}>
@@ -240,7 +214,7 @@ export default function Classes() {
                   color="#4D8DFF"
                 />
                 <Text style={styles.detailText}>
-                  {item.booked}/{item.capacity} spots booked
+                  {item.booked_count}/{item.capacity} spots booked
                 </Text>
                 <View style={styles.spacer} />
                 <Text
@@ -257,7 +231,7 @@ export default function Classes() {
                 <View
                   style={[
                     styles.progressFill,
-                    { width: `${(item.booked / item.capacity) * 100}%` },
+                    { width: `${(item.booked_count / item.capacity) * 100}%` },
                   ]}
                 />
               </View>

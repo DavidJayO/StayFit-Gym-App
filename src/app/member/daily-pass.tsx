@@ -1,7 +1,7 @@
 
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
     Alert,
     SafeAreaView,
@@ -12,18 +12,31 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
+import { supabase } from "../../lib/supabase";
+import { currentUserId, loadProfile, getErrorMessage } from "../../lib/member-data";
 
 const BLUE = "#1769FF";
 
 export default function DailyPass() {
-  const [visitDate, setVisitDate] = useState("2026-10-10");
+  const [visitDate, setVisitDate] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; });
   const [paymentMethod, setPaymentMethod] = useState("GCash");
-  const [fullName, setFullName] = useState("David Jay Ongcoy");
+  const [fullName, setFullName] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [latestRequest, setLatestRequest] = useState("");
 
-  const handlePurchase = () => {
-    if (!fullName.trim() || !visitDate.trim()) {
-      Alert.alert("Required Fields", "Please enter your name and visit date.");
+  useEffect(() => { void (async () => {
+    try {
+      const [profile, userId] = await Promise.all([loadProfile(), currentUserId()]);
+      setFullName(profile.full_name);
+      const { data, error } = await supabase.from("daily_pass_requests").select("status,visit_on").eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (error) throw error;
+      if (data) setLatestRequest(`Latest request: ${data.status.toUpperCase()} · visit ${data.visit_on}`);
+    } catch (e) { Alert.alert("Member data unavailable", getErrorMessage(e)); }
+  })(); }, []);
+
+  const handlePurchase = async () => {
+    if (!visitDate.trim()) {
+      Alert.alert("Required Fields", "Please enter your visit date.");
       return;
     }
 
@@ -41,23 +54,14 @@ export default function DailyPass() {
       return;
     }
 
-    Alert.alert(
-      "Confirm Daily Pass",
-      `Purchase request for ₱250.00\nVisit date: ${visitDate}\nPayment method: ${paymentMethod}\n\nThis is a demonstration only. No payment will be processed.`,
-      [
-        { text: "Go Back", style: "cancel" },
-        {
-          text: "Confirm Request",
-          onPress: () => {
-            setSubmitted(true);
-            Alert.alert(
-              "Demo Request Submitted",
-              "Your sample daily-pass request has been recorded on this screen only. No payment was made and no valid access pass was issued."
-            );
-          },
-        },
-      ]
-    );
+    try {
+      const userId = await currentUserId();
+      const { error } = await supabase.from("daily_pass_requests").insert({ user_id: userId, visit_on: visitDate, payment_method: paymentMethod === "Cash at Gym" ? "Cash" : paymentMethod });
+      if (error) throw error;
+      setSubmitted(true);
+      setLatestRequest(`Latest request: PENDING · visit ${visitDate}`);
+      Alert.alert("Request submitted", "Your daily pass request is saved. Payment and entry must be confirmed by gym staff.");
+    } catch (e) { Alert.alert("Request failed", getErrorMessage(e)); }
   };
 
   return (
@@ -100,7 +104,7 @@ export default function DailyPass() {
           </View>
           <Text style={styles.planLabel}>SINGLE-DAY ACCESS</Text>
           <Text style={styles.price}>₱250<Text style={styles.priceDecimal}>.00</Text></Text>
-          <Text style={styles.priceCaption}>One-day gym visit · Sample price</Text>
+          <Text style={styles.priceCaption}>One-day gym visit · ₱250.00</Text>
 
           <View style={styles.heroDivider} />
 
@@ -127,26 +131,15 @@ export default function DailyPass() {
             color="#4D8DFF"
           />
           <Text style={styles.noticeText}>
-            Demonstration mode: this page does not process payments or
-            activate gym access. The final price and terms should be
-            confirmed by gym management.
+            Submitting saves a request for gym staff. This does not charge your payment method or activate entry automatically.
           </Text>
         </View>
 
         <Text style={styles.sectionTitle}>Pass Details</Text>
 
         <View style={styles.formCard}>
-          <Text style={styles.label}>FULL NAME</Text>
-          <View style={styles.inputContainer}>
-            <Ionicons name="person-outline" size={18} color="#98A2B3" />
-            <TextInput
-              style={styles.input}
-              value={fullName}
-              onChangeText={setFullName}
-              placeholder="Enter your full name"
-              placeholderTextColor="#667085"
-            />
-          </View>
+          <Text style={styles.label}>ACCOUNT</Text>
+          <Text style={styles.input}>{fullName || "Loading member profile…"}</Text>
 
           <Text style={styles.label}>VISIT DATE (YYYY-MM-DD)</Text>
           <View style={styles.inputContainer}>
@@ -155,7 +148,7 @@ export default function DailyPass() {
               style={styles.input}
               value={visitDate}
               onChangeText={setVisitDate}
-              placeholder="2026-10-10"
+            placeholder="YYYY-MM-DD"
               placeholderTextColor="#667085"
               keyboardType="numbers-and-punctuation"
               maxLength={10}
@@ -166,7 +159,7 @@ export default function DailyPass() {
 
           {[
             { name: "GCash", icon: "phone-portrait-outline" as const },
-            { name: "Cash at Gym", icon: "cash-outline" as const },
+                { name: "Cash", icon: "cash-outline" as const },
           ].map((method) => {
             const active = paymentMethod === method.name;
 
@@ -210,7 +203,7 @@ export default function DailyPass() {
             </Text>
           </TouchableOpacity>
 
-          {submitted && (
+          {(submitted || latestRequest) && (
             <View style={styles.pendingNotice}>
               <Ionicons
                 name="time-outline"
@@ -218,8 +211,7 @@ export default function DailyPass() {
                 color="#F0B45A"
               />
               <Text style={styles.pendingText}>
-                Demo request submitted. It will not persist after the app
-                reloads.
+                {latestRequest || "Your request is saved and is awaiting staff review."}
               </Text>
             </View>
           )}

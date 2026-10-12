@@ -14,6 +14,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { isSupabaseConfigured } from "../lib/supabase";
+import { signUp } from "../lib/auth";
 
 export default function Register() {
   const [fullName, setFullName] = useState("");
@@ -25,8 +27,9 @@ export default function Register() {
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleRegister = () => {
+  const handleRegister = async () => {
     if (
       !fullName.trim() ||
       !email.trim() ||
@@ -57,16 +60,23 @@ export default function Register() {
       return;
     }
 
-    Alert.alert(
-      "Registration Successful",
-      "Your StayFit account has been created.",
-      [
-        {
-          text: "Continue",
-          onPress: () => router.replace("/login"),
-        },
-      ]
-    );
+    if (!isSupabaseConfigured) {
+      Alert.alert("Backend Not Configured", "Add your Supabase project URL and publishable key to the .env file, then restart Expo.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const result = await signUp({ fullName, email, phone, password });
+      router.replace({
+        pathname: "/login",
+        params: { signup: result.needsEmailConfirmation ? "verify" : "success" },
+      });
+    } catch (error) {
+      Alert.alert("Registration Failed", error instanceof Error ? error.message : "Please check your details and try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -302,10 +312,10 @@ export default function Register() {
               ]}
               onPress={handleRegister}
               activeOpacity={0.8}
-              disabled={!agreed}
+              disabled={isSubmitting || !agreed}
             >
               <Text style={styles.registerButtonText}>
-                CREATE ACCOUNT
+                {isSubmitting ? "CREATING ACCOUNT..." : "CREATE ACCOUNT"}
               </Text>
 
               <Ionicons

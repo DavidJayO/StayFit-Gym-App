@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { useEffect, useState } from "react";
 import {
   SafeAreaView,
   ScrollView,
@@ -8,8 +9,28 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { supabase } from "../../lib/supabase";
+import { currentUserId, formatDate, loadMembership, loadProfile, Membership, getErrorMessage } from "../../lib/member-data";
 
 export default function Dashboard() {
+  const [name, setName] = useState("Member");
+  const [membership, setMembership] = useState<Membership | null>(null);
+  const [nextClass, setNextClass] = useState<any>(null);
+  const [unread, setUnread] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => { void (async () => {
+    try {
+      const [profile, plan, userId] = await Promise.all([loadProfile(), loadMembership(), currentUserId()]);
+      setName(profile.full_name?.split(" ")[0] || profile.email || "Member"); setMembership(plan);
+      const { data, error: bookingError } = await supabase.from("class_bookings").select("status,gym_classes(name,trainer_name,starts_at,duration_minutes)").eq("user_id", userId).in("status", ["pending", "approved"]).order("created_at", { ascending: false });
+      if (bookingError) throw bookingError;
+      const upcoming = ((data ?? []) as any[]).filter((row) => row.gym_classes && new Date(row.gym_classes.starts_at) > new Date()).sort((a, b) => new Date(a.gym_classes.starts_at).getTime() - new Date(b.gym_classes.starts_at).getTime());
+      setNextClass(upcoming[0]?.gym_classes ?? null);
+      const { count, error: notificationError } = await supabase.from("member_notifications").select("id", { count: "exact", head: true }).eq("user_id", userId).is("read_at", null);
+      if (!notificationError) setUnread((count ?? 0) > 0);
+    } catch (e) { setError(getErrorMessage(e)); }
+  })(); }, []);
+  const active = !!membership && membership.status === "active" && new Date(`${membership.ends_on}T23:59:59`) >= new Date();
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
@@ -20,7 +41,7 @@ export default function Dashboard() {
         <View style={styles.header}>
           <View>
             <Text style={styles.smallText}>WELCOME BACK</Text>
-            <Text style={styles.greeting}>David Jay 👋</Text>
+            <Text style={styles.greeting}>{name} 👋</Text>
           </View>
 
           <TouchableOpacity
@@ -33,7 +54,7 @@ export default function Dashboard() {
               color="#FFFFFF"
             />
 
-            <View style={styles.notificationDot} />
+            {unread && <View style={styles.notificationDot} />}
           </TouchableOpacity>
         </View>
 
@@ -46,12 +67,12 @@ export default function Dashboard() {
           <View style={styles.membershipTop}>
             <View>
               <Text style={styles.cardLabel}>MEMBERSHIP</Text>
-              <Text style={styles.planName}>Premium Plan</Text>
+              <Text style={styles.planName}>{membership?.plan_name ?? "No membership on file"}</Text>
             </View>
 
             <View style={styles.activeBadge}>
               <View style={styles.activeDot} />
-              <Text style={styles.activeText}>ACTIVE</Text>
+              <Text style={styles.activeText}>{active ? "ACTIVE" : membership?.status?.toUpperCase() ?? "NONE"}</Text>
             </View>
           </View>
 
@@ -60,7 +81,7 @@ export default function Dashboard() {
           <View style={styles.membershipBottom}>
             <View>
               <Text style={styles.cardLabel}>VALID UNTIL</Text>
-              <Text style={styles.dateText}>Dec 31, 2026</Text>
+              <Text style={styles.dateText}>{formatDate(membership?.ends_on)}</Text>
             </View>
 
             <Ionicons
@@ -91,7 +112,7 @@ export default function Dashboard() {
             </Text>
 
             <Text style={styles.accessSubtitle}>
-              Show your QR code to enter the gym
+              Show your membership details to gym staff
             </Text>
           </View>
 
@@ -160,25 +181,21 @@ export default function Dashboard() {
             />
           </View>
 
+          {error ? <Text style={styles.coach}>{error}</Text> : nextClass ? <>
           <View style={styles.classInfo}>
-            <Text style={styles.className}>
-              Full Body Workout
-            </Text>
+            <Text style={styles.className}>{nextClass.name}</Text>
 
             <Text style={styles.classDetails}>
-              Sep 18 • 5:00 PM - 6:00 PM
+              {new Date(nextClass.starts_at).toLocaleDateString()} • {new Date(nextClass.starts_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · {nextClass.duration_minutes} min
             </Text>
 
             <Text style={styles.coach}>
-              Coach Michael
+              {nextClass.trainer_name}
             </Text>
           </View>
-
           <View style={styles.bookedBadge}>
-            <Text style={styles.bookedText}>
-              BOOKED
-            </Text>
-          </View>
+            <Text style={styles.bookedText}>BOOKED</Text>
+          </View></> : <Text style={styles.className}>No upcoming class booking</Text>}
         </TouchableOpacity>
 
         {/* BOTTOM NAV */}
