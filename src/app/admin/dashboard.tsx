@@ -1,757 +1,113 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import {
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import { RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { AdminBottomNav, AdminLoading, AdminMessage, AdminPanel, AdminSectionTitle, AdminColors as C } from "../../components/admin-ui";
+import { errorMessage, formatAdminTime, loadAdminOverview } from "../../lib/admin-data";
+
+type Overview = Awaited<ReturnType<typeof loadAdminOverview>>;
 
 export default function AdminDashboard() {
+  const [data, setData] = useState<Overview | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const load = useCallback(async (refresh = false) => {
+    if (refresh) setRefreshing(true); else setLoading(true);
+    setError("");
+    try { setData(await loadAdminOverview()); } catch (e) { setError(errorMessage(e)); }
+    finally { setLoading(false); setRefreshing(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}
-      >
-        {/* HEADER */}
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={C.blue} />}>
         <View style={styles.header}>
-          <View>
-            <Text style={styles.smallText}>STAYFIT GYM</Text>
-            <Text style={styles.title}>Admin Dashboard</Text>
-          </View>
-
-          <TouchableOpacity
-            style={styles.notificationButton}
-            onPress={() => router.push("/admin/notifications")}
-            activeOpacity={0.8}
-          >
-            <Ionicons
-              name="notifications-outline"
-              size={20}
-              color="#FFFFFF"
-            />
-
-            <View style={styles.notificationDot} />
-          </TouchableOpacity>
+          <View><Text style={styles.eyebrow}>STAYFIT GYM</Text><Text style={styles.title}>Admin Dashboard</Text></View>
+          <TouchableOpacity style={styles.notificationButton} onPress={() => router.push("/admin/requests" as never)}><Ionicons name="notifications-outline" size={20} color={C.text} />{(data?.pendingRequests ?? 0) > 0 && <View style={styles.dot} />}</TouchableOpacity>
         </View>
 
-        {/* WELCOME CARD */}
         <View style={styles.welcomeCard}>
-          <View style={styles.welcomeContent}>
-            <Text style={styles.welcomeSmall}>Welcome back,</Text>
-
-            <Text style={styles.welcomeName}>
-              Admin 👋
-            </Text>
-
-            <Text style={styles.welcomeDescription}>
-              Here's what's happening at StayFit today.
-            </Text>
-          </View>
-
-          <View style={styles.adminIcon}>
-            <Ionicons
-              name="shield-checkmark"
-              size={28}
-              color="#4D8DFF"
-            />
-          </View>
+          <View style={{ flex: 1 }}><Text style={styles.muted}>MANAGEMENT OVERVIEW</Text><Text style={styles.welcomeTitle}>StayFit Admin</Text><Text style={styles.welcomeBody}>Live activity and member data from your gym.</Text></View>
+          <View style={styles.shield}><Ionicons name="shield-checkmark" size={27} color={C.blue} /></View>
         </View>
 
-        {/* OVERVIEW */}
-        <Text style={styles.sectionTitle}>Overview</Text>
-
-        <View style={styles.statsGrid}>
-          {/* Members */}
-          <View style={styles.statCard}>
-            <View style={styles.statIcon}>
-              <Ionicons
-                name="people-outline"
-                size={20}
-                color="#4D8DFF"
-              />
-            </View>
-
-            <Text style={styles.statNumber}>128</Text>
-
-            <Text style={styles.statLabel}>
-              Total Members
-            </Text>
+        {error ? <AdminMessage>{error}</AdminMessage> : null}
+        {loading && !data ? <AdminLoading /> : <>
+          <AdminSectionTitle>Overview</AdminSectionTitle>
+          <View style={styles.statsGrid}>
+            <Stat icon="people-outline" value={data?.members ?? 0} label="Total Members" />
+            <Stat icon="card-outline" value={data?.activeMemberships ?? 0} label="Active Memberships" />
+            <Stat icon="checkmark-circle-outline" value={data?.checkIns ?? 0} label="Today's Check-ins" />
+            <Stat icon="cash-outline" value={`₱${(data?.revenue ?? 0).toLocaleString("en-PH", { maximumFractionDigits: 0 })}`} label="Paid This Month" />
           </View>
 
-          {/* Memberships */}
-          <View style={styles.statCard}>
-            <View style={styles.statIcon}>
-              <Ionicons
-                name="card-outline"
-                size={20}
-                color="#4D8DFF"
-              />
-            </View>
-
-            <Text style={styles.statNumber}>96</Text>
-
-            <Text style={styles.statLabel}>
-              Active Memberships
-            </Text>
+          <AdminSectionTitle>Quick Management</AdminSectionTitle>
+          <View style={styles.actionGrid}>
+            <Action icon="people-outline" label="Members" onPress={() => router.push("/admin/members" as never)} />
+            <Action icon="calendar-outline" label="Classes" onPress={() => router.push("/admin/classes" as never)} />
+            <Action icon="wallet-outline" label="Payments" onPress={() => router.push("/admin/payments" as never)} />
+            <Action icon="file-tray-full-outline" label={`Requests${(data?.pendingRequests ?? 0) ? ` · ${data?.pendingRequests}` : ""}`} onPress={() => router.push("/admin/requests" as never)} />
           </View>
 
-          {/* Check-ins */}
-          <View style={styles.statCard}>
-            <View style={styles.statIcon}>
-              <Ionicons
-                name="checkmark-circle-outline"
-                size={20}
-                color="#4D8DFF"
-              />
-            </View>
+          <AdminSectionTitle>Upcoming Classes</AdminSectionTitle>
+          {(data?.classes.length ?? 0) === 0 ? <AdminPanel><Text style={styles.empty}>No upcoming classes are scheduled.</Text></AdminPanel> : data?.classes.map((item: any) => <AdminPanel key={item.id} style={styles.rowPanel}><View style={styles.iconTile}><Ionicons name="fitness-outline" size={20} color={C.blue} /></View><View style={styles.rowContent}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.rowSub}>{item.category} · {item.trainer_name}</Text><Text style={styles.rowSub}>{formatAdminTime(item.starts_at)} · {item.duration_minutes} min · capacity {item.capacity}</Text></View></AdminPanel>)}
 
-            <Text style={styles.statNumber}>42</Text>
+          <AdminSectionTitle>Recent Bookings</AdminSectionTitle>
+          {(data?.bookings.length ?? 0) === 0 ? <AdminPanel><Text style={styles.empty}>No class bookings yet.</Text></AdminPanel> : data?.bookings.map((booking: any) => <AdminPanel key={booking.id} style={styles.bookingPanel}><View style={styles.bookingMain}><Text style={styles.rowTitle}>{booking.profiles?.full_name || "Member"}</Text><Text style={styles.rowSub}>{booking.gym_classes?.name || "Class"} · {formatAdminTime(booking.created_at)}</Text></View><Text style={[styles.status, booking.status === "approved" ? styles.approved : booking.status === "pending" ? styles.pending : styles.other]}>{String(booking.status).toUpperCase()}</Text></AdminPanel>)}
 
-            <Text style={styles.statLabel}>
-              Today's Check-ins
-            </Text>
-          </View>
-
-          {/* Revenue */}
-          <View style={styles.statCard}>
-            <View style={styles.statIcon}>
-              <Ionicons
-                name="cash-outline"
-                size={20}
-                color="#4D8DFF"
-              />
-            </View>
-
-            <Text style={styles.statNumber}>₱24.5K</Text>
-
-            <Text style={styles.statLabel}>
-              Monthly Revenue
-            </Text>
-          </View>
-        </View>
-
-        {/* QUICK MANAGEMENT */}
-        <Text style={styles.sectionTitle}>
-          Quick Management
-        </Text>
-
-        <View style={styles.managementCard}>
-          {/* MEMBERS */}
-          <TouchableOpacity
-            style={styles.managementItem}
-            onPress={() => router.push("/admin/members")}
-            activeOpacity={0.7}
-          >
-            <View style={styles.managementIcon}>
-              <Ionicons
-                name="people-outline"
-                size={20}
-                color="#4D8DFF"
-              />
-            </View>
-
-            <View style={styles.managementText}>
-              <Text style={styles.managementTitle}>
-                Members
-              </Text>
-
-              <Text style={styles.managementDescription}>
-                Manage gym members
-              </Text>
-            </View>
-
-            <Ionicons
-              name="chevron-forward"
-              size={18}
-              color="#667085"
-            />
-          </TouchableOpacity>
-
-          <View style={styles.divider} />
-
-          {/* CLASSES */}
-          <TouchableOpacity
-            style={styles.managementItem}
-            onPress={() => router.push("/admin/classes")}
-            activeOpacity={0.7}
-          >
-            <View style={styles.managementIcon}>
-              <Ionicons
-                name="calendar-outline"
-                size={20}
-                color="#4D8DFF"
-              />
-            </View>
-
-            <View style={styles.managementText}>
-              <Text style={styles.managementTitle}>
-                Classes
-              </Text>
-
-              <Text style={styles.managementDescription}>
-                Manage schedules and bookings
-              </Text>
-            </View>
-
-            <Ionicons
-              name="chevron-forward"
-              size={18}
-              color="#667085"
-            />
-          </TouchableOpacity>
-
-          <View style={styles.divider} />
-
-          {/* PAYMENTS */}
-          <TouchableOpacity
-            style={styles.managementItem}
-            onPress={() => router.push("/admin/payments")}
-            activeOpacity={0.7}
-          >
-            <View style={styles.managementIcon}>
-              <Ionicons
-                name="wallet-outline"
-                size={20}
-                color="#4D8DFF"
-              />
-            </View>
-
-            <View style={styles.managementText}>
-              <Text style={styles.managementTitle}>
-                Payments
-              </Text>
-
-              <Text style={styles.managementDescription}>
-                Review payment transactions
-              </Text>
-            </View>
-
-            <Ionicons
-              name="chevron-forward"
-              size={18}
-              color="#667085"
-            />
-          </TouchableOpacity>
-
-          <View style={styles.divider} />
-
-          {/* REPORTS */}
-          <TouchableOpacity
-            style={styles.managementItem}
-            onPress={() => router.push("/admin/reports")}
-            activeOpacity={0.7}
-          >
-            <View style={styles.managementIcon}>
-              <Ionicons
-                name="bar-chart-outline"
-                size={20}
-                color="#4D8DFF"
-              />
-            </View>
-
-            <View style={styles.managementText}>
-              <Text style={styles.managementTitle}>
-                Reports
-              </Text>
-
-              <Text style={styles.managementDescription}>
-                View gym reports and statistics
-              </Text>
-            </View>
-
-            <Ionicons
-              name="chevron-forward"
-              size={18}
-              color="#667085"
-            />
-          </TouchableOpacity>
-        </View>
-
-        {/* TODAY'S ACTIVITY */}
-        <Text style={styles.sectionTitle}>
-          Today's Activity
-        </Text>
-
-        <View style={styles.activityCard}>
-          {/* CHECK-INS */}
-          <View style={styles.activityRow}>
-            <View style={styles.activityIcon}>
-              <Ionicons
-                name="log-in-outline"
-                size={19}
-                color="#4D8DFF"
-              />
-            </View>
-
-            <View style={styles.activityText}>
-              <Text style={styles.activityTitle}>
-                Member Check-ins
-              </Text>
-
-              <Text style={styles.activitySubtext}>
-                42 members checked in today
-              </Text>
-            </View>
-
-            <Text style={styles.activityNumber}>
-              42
-            </Text>
-          </View>
-
-          <View style={styles.divider} />
-
-          {/* DAILY PASSES */}
-          <View style={styles.activityRow}>
-            <View style={styles.activityIcon}>
-              <Ionicons
-                name="ticket-outline"
-                size={19}
-                color="#4D8DFF"
-              />
-            </View>
-
-            <View style={styles.activityText}>
-              <Text style={styles.activityTitle}>
-                Daily Passes
-              </Text>
-
-              <Text style={styles.activitySubtext}>
-                Passes purchased today
-              </Text>
-            </View>
-
-            <Text style={styles.activityNumber}>
-              8
-            </Text>
-          </View>
-
-          <View style={styles.divider} />
-
-          {/* CLASS BOOKINGS */}
-          <View style={styles.activityRow}>
-            <View style={styles.activityIcon}>
-              <Ionicons
-                name="fitness-outline"
-                size={19}
-                color="#4D8DFF"
-              />
-            </View>
-
-            <View style={styles.activityText}>
-              <Text style={styles.activityTitle}>
-                Class Bookings
-              </Text>
-
-              <Text style={styles.activitySubtext}>
-                Classes booked today
-              </Text>
-            </View>
-
-            <Text style={styles.activityNumber}>
-              26
-            </Text>
-          </View>
-        </View>
-
-        <View style={{ height: 25 }} />
+          <AdminPanel style={styles.note}><Text style={styles.rowSub}>Pull down to refresh live totals. Revenue counts paid transactions recorded in Supabase.</Text></AdminPanel>
+        </>}
       </ScrollView>
-
-      {/* BOTTOM NAVIGATION */}
-      <View style={styles.bottomNav}>
-        {/* HOME */}
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => router.push("/admin/dashboard")}
-        >
-          <Ionicons
-            name="home"
-            size={21}
-            color="#1769FF"
-          />
-
-          <Text style={[styles.navText, styles.activeNavText]}>
-            Home
-          </Text>
-        </TouchableOpacity>
-
-        {/* MEMBERS */}
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => router.push("/admin/members")}
-        >
-          <Ionicons
-            name="people-outline"
-            size={21}
-            color="#667085"
-          />
-
-          <Text style={styles.navText}>
-            Members
-          </Text>
-        </TouchableOpacity>
-
-        {/* CLASSES */}
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => router.push("/admin/classes")}
-        >
-          <Ionicons
-            name="calendar-outline"
-            size={21}
-            color="#667085"
-          />
-
-          <Text style={styles.navText}>
-            Classes
-          </Text>
-        </TouchableOpacity>
-
-        {/* PAYMENTS */}
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => router.push("/admin/payments")}
-        >
-          <Ionicons
-            name="wallet-outline"
-            size={21}
-            color="#667085"
-          />
-
-          <Text style={styles.navText}>
-            Payments
-          </Text>
-        </TouchableOpacity>
-
-        {/* MORE */}
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => router.push("/admin/settings")}
-        >
-          <Ionicons
-            name="menu-outline"
-            size={21}
-            color="#667085"
-          />
-
-          <Text style={styles.navText}>
-            More
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* BLUE BOTTOM LINE */}
+      <AdminBottomNav />
       <View style={styles.bottomLine} />
     </SafeAreaView>
   );
 }
 
+function Stat({ icon, value, label }: { icon: keyof typeof Ionicons.glyphMap; value: string | number; label: string }) {
+  return <View style={styles.statCard}><View style={styles.statIcon}><Ionicons name={icon} size={19} color={C.blue} /></View><Text style={styles.statNumber}>{value}</Text><Text style={styles.statLabel}>{label}</Text></View>;
+}
+
+function Action({ icon, label, onPress }: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void }) {
+  return <TouchableOpacity style={styles.actionCard} onPress={onPress} activeOpacity={0.78}><View style={styles.actionIcon}><Ionicons name={icon} size={20} color={C.blue} /></View><Text style={styles.actionLabel}>{label}</Text><Ionicons name="chevron-forward" size={15} color={C.dim} /></TouchableOpacity>;
+}
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#06111C",
-  },
-
-  content: {
-    paddingHorizontal: 20,
-    paddingTop: 15,
-    paddingBottom: 105,
-  },
-
-  /* HEADER */
-
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-
-  smallText: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#98A2B3",
-    letterSpacing: 1,
-    marginBottom: 4,
-  },
-
-  title: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#FFFFFF",
-  },
-
-  notificationButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
-    backgroundColor: "#102131",
-    borderWidth: 1,
-    borderColor: "#1C3040",
-    justifyContent: "center",
-    alignItems: "center",
-    position: "relative",
-  },
-
-  notificationDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: "#FF4D5E",
-    position: "absolute",
-    top: 8,
-    right: 9,
-  },
-
-  /* WELCOME */
-
-  welcomeCard: {
-    backgroundColor: "#102131",
-    borderRadius: 14,
-    padding: 18,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#1C3040",
-    marginBottom: 24,
-  },
-
-  welcomeContent: {
-    flex: 1,
-  },
-
-  welcomeSmall: {
-    fontSize: 11,
-    color: "#98A2B3",
-  },
-
-  welcomeName: {
-    fontSize: 21,
-    fontWeight: "800",
-    color: "#FFFFFF",
-    marginTop: 3,
-  },
-
-  welcomeDescription: {
-    fontSize: 10.5,
-    color: "#98A2B3",
-    marginTop: 5,
-    maxWidth: 230,
-    lineHeight: 16,
-  },
-
-  adminIcon: {
-    width: 55,
-    height: 55,
-    borderRadius: 14,
-    backgroundColor: "#0B1A28",
-    borderWidth: 1,
-    borderColor: "#1D3A55",
-    justifyContent: "center",
-    alignItems: "center",
-    marginLeft: 10,
-  },
-
-  /* SECTION */
-
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#FFFFFF",
-    marginBottom: 11,
-  },
-
-  /* STATISTICS */
-
-  statsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    marginBottom: 23,
-  },
-
-  statCard: {
-    width: "48%",
-    backgroundColor: "#102131",
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: "#1C3040",
-  },
-
-  statIcon: {
-    width: 37,
-    height: 37,
-    borderRadius: 10,
-    backgroundColor: "#0B1A28",
-    borderWidth: 1,
-    borderColor: "#1D3A55",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 10,
-  },
-
-  statNumber: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#FFFFFF",
-  },
-
-  statLabel: {
-    fontSize: 10,
-    color: "#98A2B3",
-    marginTop: 3,
-    lineHeight: 14,
-  },
-
-  /* MANAGEMENT */
-
-  managementCard: {
-    backgroundColor: "#102131",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    marginBottom: 23,
-    borderWidth: 1,
-    borderColor: "#1C3040",
-  },
-
-  managementItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 14,
-  },
-
-  managementIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: "#0B1A28",
-    borderWidth: 1,
-    borderColor: "#1D3A55",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 11,
-  },
-
-  managementText: {
-    flex: 1,
-  },
-
-  managementTitle: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-
-  managementDescription: {
-    fontSize: 10,
-    color: "#98A2B3",
-    marginTop: 3,
-  },
-
-  divider: {
-    height: 1,
-    backgroundColor: "#1C3040",
-  },
-
-  /* ACTIVITY */
-
-  activityCard: {
-    backgroundColor: "#102131",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: "#1C3040",
-  },
-
-  activityRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 14,
-  },
-
-  activityIcon: {
-    width: 39,
-    height: 39,
-    borderRadius: 10,
-    backgroundColor: "#0B1A28",
-    borderWidth: 1,
-    borderColor: "#1D3A55",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 11,
-  },
-
-  activityText: {
-    flex: 1,
-  },
-
-  activityTitle: {
-    fontSize: 12.5,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-
-  activitySubtext: {
-    fontSize: 9.5,
-    color: "#98A2B3",
-    marginTop: 3,
-  },
-
-  activityNumber: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: "#4D8DFF",
-  },
-
-  /* BOTTOM NAV */
-
-  bottomNav: {
-    position: "absolute",
-    bottom: 3,
-    left: 0,
-    right: 0,
-    height: 67,
-    backgroundColor: "#102131",
-    borderTopWidth: 1,
-    borderTopColor: "#1C3040",
-    flexDirection: "row",
-    justifyContent: "space-around",
-    alignItems: "center",
-    zIndex: 10,
-  },
-
-  navItem: {
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: 55,
-  },
-
-  navText: {
-    fontSize: 9,
-    color: "#667085",
-    marginTop: 4,
-  },
-
-  activeNavText: {
-    color: "#4D8DFF",
-    fontWeight: "700",
-  },
-
-  /* BOTTOM LINE */
-
-  bottomLine: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 3,
-    backgroundColor: "#169BFF",
-    zIndex: 20,
-  },
+  container: { flex: 1, backgroundColor: C.background },
+  content: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 105 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 18 },
+  eyebrow: { color: C.muted, fontSize: 8, fontWeight: "800", letterSpacing: 1.2, marginBottom: 4 },
+  title: { color: C.text, fontSize: 21, fontWeight: "800" },
+  notificationButton: { width: 42, height: 42, borderRadius: 10, backgroundColor: C.panel, borderColor: C.border, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  dot: { position: "absolute", top: 8, right: 8, height: 7, width: 7, borderRadius: 4, backgroundColor: "#FF4D5E" },
+  welcomeCard: { backgroundColor: C.panel, borderRadius: 14, borderWidth: 1, borderColor: C.border, padding: 17, flexDirection: "row", alignItems: "center", marginBottom: 20 },
+  muted: { color: C.muted, fontSize: 8, fontWeight: "700", letterSpacing: 1 },
+  welcomeTitle: { color: C.text, fontSize: 20, fontWeight: "800", marginTop: 4 },
+  welcomeBody: { color: C.muted, fontSize: 10, marginTop: 5, lineHeight: 15 },
+  shield: { width: 52, height: 52, borderRadius: 14, backgroundColor: C.panelDeep, borderWidth: 1, borderColor: C.borderBright, alignItems: "center", justifyContent: "center", marginLeft: 10 },
+  statsGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
+  statCard: { width: "48.5%", backgroundColor: C.panel, borderRadius: 12, padding: 13, marginBottom: 9, borderWidth: 1, borderColor: C.border },
+  statIcon: { width: 35, height: 35, borderRadius: 9, backgroundColor: C.panelDeep, borderWidth: 1, borderColor: C.borderBright, alignItems: "center", justifyContent: "center", marginBottom: 9 },
+  statNumber: { color: C.text, fontSize: 20, fontWeight: "800" },
+  statLabel: { color: C.muted, fontSize: 9, marginTop: 3, lineHeight: 13 },
+  actionGrid: { gap: 8 },
+  actionCard: { minHeight: 57, backgroundColor: C.panel, borderRadius: 11, borderWidth: 1, borderColor: C.border, flexDirection: "row", alignItems: "center", paddingHorizontal: 11 },
+  actionIcon: { width: 35, height: 35, borderRadius: 9, backgroundColor: C.panelDeep, borderWidth: 1, borderColor: C.borderBright, alignItems: "center", justifyContent: "center", marginRight: 10 },
+  actionLabel: { flex: 1, color: C.text, fontSize: 11, fontWeight: "700" },
+  rowPanel: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
+  iconTile: { width: 40, height: 40, borderRadius: 10, backgroundColor: C.panelDeep, alignItems: "center", justifyContent: "center", marginRight: 11 },
+  rowContent: { flex: 1 },
+  rowTitle: { color: C.text, fontSize: 11, fontWeight: "800" },
+  rowSub: { color: C.muted, fontSize: 9, lineHeight: 14, marginTop: 3 },
+  bookingPanel: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
+  bookingMain: { flex: 1 },
+  status: { fontSize: 7, fontWeight: "800", borderRadius: 12, overflow: "hidden", paddingHorizontal: 7, paddingVertical: 5 },
+  approved: { color: C.green, backgroundColor: "#123D2A" },
+  pending: { color: "#F4C95D", backgroundColor: "#40351D" },
+  other: { color: C.muted, backgroundColor: C.panelDeep },
+  empty: { color: C.muted, fontSize: 11 },
+  note: { marginTop: 9 },
+  bottomLine: { position: "absolute", left: 0, right: 0, bottom: 0, height: 3, backgroundColor: C.cyan, zIndex: 20 },
 });

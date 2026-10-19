@@ -22,11 +22,13 @@ export default function MembershipScreen() {
     } catch (e) { setError(getErrorMessage(e)); }
   };
 
+  const hasMembership = !!membership;
+
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.header}>My Membership</Text>
-        <Text style={styles.subtitle}>Manage your gym membership</Text>
+        <Text style={styles.subtitle}>{hasMembership ? "Manage your gym membership" : "Choose a plan to get started"}</Text>
 
         <View style={styles.planCard}>
           <View style={styles.planHeader}>
@@ -39,8 +41,8 @@ export default function MembershipScreen() {
             </View>
           </View>
 
-          <Text style={styles.price}>{membership ? "Membership on file" : "No plan assigned"}</Text>
-          <Text style={styles.muted}>Plan benefits and pricing are provided by the gym.</Text>
+          <Text style={styles.price}>{membership?.plan_name ?? "Choose your first plan"}</Text>
+          <Text style={styles.muted}>{hasMembership ? "Your membership details are synced with the gym." : "Compare the available options and send a plan request to the gym."}</Text>
 
           <View style={styles.divider} />
 
@@ -60,18 +62,29 @@ export default function MembershipScreen() {
 
         {!!error && <Text style={styles.muted}>{error}</Text>}
         {!!notice && <Text style={styles.muted}>{notice}</Text>}
-        <TouchableOpacity style={styles.primaryButton} onPress={renewMembership}>
-          <Ionicons name="refresh-outline" size={20} color="#FFFFFF" />
-          <Text style={styles.buttonText}>Renew Membership</Text>
-        </TouchableOpacity>
+        {hasMembership ? <>
+          <TouchableOpacity style={styles.primaryButton} onPress={renewMembership}>
+            <Ionicons name="refresh-outline" size={20} color="#FFFFFF" />
+            <Text style={styles.buttonText}>Renew Membership</Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.secondaryButton}
-          onPress={() => router.push("/member/freeze")}
-        >
-          <Ionicons name="snow-outline" size={20} color="#FFFFFF" />
-          <Text style={styles.buttonText}>Request Membership Freeze</Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => router.push("/member/freeze")}
+          >
+            <Ionicons name="snow-outline" size={20} color="#FFFFFF" />
+            <Text style={styles.buttonText}>Request Membership Freeze</Text>
+          </TouchableOpacity>
+        </> : <>
+          <TouchableOpacity style={styles.primaryButton} onPress={() => router.push("/member/plans")}>
+            <Ionicons name="card-outline" size={20} color="#FFFFFF" />
+            <Text style={styles.buttonText}>Browse Membership Plans</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.secondaryButton} onPress={() => router.push("/member/plans?category=daily")}>
+            <Ionicons name="ticket-outline" size={20} color="#FFFFFF" />
+            <Text style={styles.buttonText}>View Daily Pass</Text>
+          </TouchableOpacity>
+        </>}
 
         <Text style={styles.footer}>
           STAYFIT GYM • MEMBERSHIP • FITNESS • COMMUNITY

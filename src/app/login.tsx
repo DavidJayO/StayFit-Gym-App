@@ -15,12 +15,13 @@ import {
   View,
 } from "react-native";
 import { isSupabaseConfigured } from "../lib/supabase";
-import { signIn } from "../lib/auth";
+import { signIn, type AppRole } from "../lib/auth";
 
 export default function Login() {
   const { signup } = useLocalSearchParams<{ signup?: string }>();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [selectedRole, setSelectedRole] = useState<AppRole>("member");
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loginError, setLoginError] = useState("");
@@ -44,6 +45,16 @@ export default function Login() {
     setLoginError("");
     try {
       const role = await signIn(email, password);
+      if (role !== selectedRole) {
+        const { supabase } = await import("../lib/supabase");
+        await supabase.auth.signOut();
+        setLoginError(
+          role === "admin"
+            ? "This account is an administrator account. Choose Admin to continue."
+            : "This account is a member account. Choose Member to continue."
+        );
+        return;
+      }
       router.replace(role === "admin" ? "/admin/dashboard" : "/member/dashboard");
     } catch (error) {
       setLoginError(error instanceof Error ? error.message : "Check your email and password, then try again.");
@@ -125,6 +136,34 @@ export default function Login() {
                   : "Login to continue to StayFit"}
             </Text>
             {loginError ? <Text style={styles.errorText}>{loginError}</Text> : null}
+          </View>
+
+          <View style={styles.roleSelector} accessibilityRole="radiogroup">
+            {(["member", "admin"] as const).map((role) => {
+              const selected = selectedRole === role;
+              return (
+                <TouchableOpacity
+                  key={role}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  style={[styles.roleOption, selected && styles.roleOptionSelected]}
+                  onPress={() => {
+                    setSelectedRole(role);
+                    setLoginError("");
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name={role === "admin" ? "shield-checkmark-outline" : "person-outline"}
+                    size={17}
+                    color={selected ? "#FFFFFF" : "#98A2B3"}
+                  />
+                  <Text style={[styles.roleOptionText, selected && styles.roleOptionTextSelected]}>
+                    {role === "admin" ? "Admin" : "Member"}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
           {/* LOGIN CARD */}
@@ -230,20 +269,21 @@ export default function Login() {
 
           {/* REGISTER */}
 
-          <View style={styles.registerRow}>
-            <Text style={styles.registerText}>
-              Don't have an account?
+          {selectedRole === "member" ? (
+            <View style={styles.registerRow}>
+              <Text style={styles.registerText}>Don't have an account?</Text>
+              <TouchableOpacity
+                onPress={() => router.push("/register")}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.registerLink}> Create Account</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <Text style={styles.adminNote}>
+              Admin accounts are created by the gym administrator. Sign in with your assigned email and password.
             </Text>
-
-            <TouchableOpacity
-              onPress={() => router.push("/register")}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.registerLink}>
-                {" "}Create Account
-              </Text>
-            </TouchableOpacity>
-          </View>
+          )}
 
           {/* BACKEND SETUP */}
 
@@ -323,6 +363,40 @@ const styles = StyleSheet.create({
   titleContainer: {
     alignItems: "center",
     marginBottom: 23,
+  },
+
+  roleSelector: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 14,
+  },
+
+  roleOption: {
+    flex: 1,
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#24394A",
+    backgroundColor: "#0B1A28",
+  },
+
+  roleOptionSelected: {
+    borderColor: "#1769FF",
+    backgroundColor: "#173B70",
+  },
+
+  roleOptionText: {
+    color: "#98A2B3",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+
+  roleOptionTextSelected: {
+    color: "#FFFFFF",
   },
 
   title: {
@@ -432,6 +506,15 @@ const styles = StyleSheet.create({
     color: "#4D8DFF",
     fontSize: 10,
     fontWeight: "800",
+  },
+
+  adminNote: {
+    color: "#98A2B3",
+    fontSize: 10,
+    lineHeight: 16,
+    textAlign: "center",
+    marginTop: 18,
+    paddingHorizontal: 12,
   },
 
   /* DEMO */

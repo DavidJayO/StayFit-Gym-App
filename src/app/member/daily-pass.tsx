@@ -103,8 +103,8 @@ export default function DailyPass() {
             <Ionicons name="fitness-outline" size={30} color="#FFFFFF" />
           </View>
           <Text style={styles.planLabel}>SINGLE-DAY ACCESS</Text>
-          <Text style={styles.price}>₱250<Text style={styles.priceDecimal}>.00</Text></Text>
-          <Text style={styles.priceCaption}>One-day gym visit · ₱250.00</Text>
+          <Text style={styles.price}>₱150<Text style={styles.priceDecimal}>.00</Text></Text>
+          <Text style={styles.priceCaption}>One-day gym visit · ₱150.00</Text>
 
           <View style={styles.heroDivider} />
 
@@ -189,7 +189,7 @@ export default function DailyPass() {
 
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Total Amount</Text>
-            <Text style={styles.totalPrice}>₱250.00</Text>
+            <Text style={styles.totalPrice}>₱150.00</Text>
           </View>
 
           <TouchableOpacity
