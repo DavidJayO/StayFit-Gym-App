@@ -10,6 +10,20 @@ function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 }
 
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const value = error as Record<string, unknown>;
+    const message = typeof value.message === "string" ? value.message : "";
+    const details = typeof value.details === "string" ? value.details : "";
+    const hint = typeof value.hint === "string" ? value.hint : "";
+    const code = typeof value.code === "string" ? ` (${value.code})` : "";
+    const description = [message, details, hint].filter(Boolean).join(" ");
+    if (description) return `${description}${code}`;
+  }
+  return "Could not start PayPal checkout. Check the Supabase function logs for details.";
+}
+
 function envKey(mapName: string, fallbackName: string) {
   const direct = Deno.env.get(fallbackName);
   if (direct) return direct;
@@ -30,14 +44,25 @@ async function paypalToken(clientId: string, secret: string) {
   return data.access_token as string;
 }
 
-async function paypalRequest(token: string, path: string, method: string, body?: unknown) {
+async function paypalRequest(token: string, path: string, method: string, body?: unknown, returnRepresentation = false) {
   const response = await fetch(`https://api-m.sandbox.paypal.com${path}`, {
     method,
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...(returnRepresentation ? { Prefer: "return=representation" } : {}),
+    },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const data = await response.json();
-  if (!response.ok) throw new Error(data.message ?? data.name ?? "PayPal request failed.");
+  if (!response.ok) {
+    const issues = Array.isArray(data.details)
+      ? data.details.map((item: { issue?: string; description?: string }) => [item.issue, item.description].filter(Boolean).join(": ")).filter(Boolean).join("; ")
+      : "";
+    const debugId = typeof data.debug_id === "string" ? ` PayPal debug ID: ${data.debug_id}.` : "";
+    throw new Error(`${data.message ?? data.name ?? "PayPal request failed."}${issues ? ` Details: ${issues}.` : ""}${debugId} (endpoint: ${method} ${path})`);
+  }
   return data;
 }
 
@@ -75,16 +100,24 @@ Deno.serve(async (req) => {
     let invoiceUrl = request.paypal_invoice_url as string | null;
     let invoiceStatus = "UNPAID";
     if (invoiceId) {
-      const invoice = await paypalRequest(token, `/v2/invoicing/invoices/${encodeURIComponent(invoiceId)}`, "GET");
+      let invoice = await paypalRequest(token, `/v2/invoicing/invoices/${encodeURIComponent(invoiceId)}`, "GET");
       if (invoice.detail?.reference !== request.id || invoice.detail?.currency_code !== "PHP") throw new Error("Saved PayPal invoice does not match this membership request.");
       if (invoice.status === "CANCELLED" || invoice.status === "REFUNDED") throw new Error(`PayPal invoice is ${String(invoice.status).toLowerCase()}. Contact gym staff.`);
+      if (invoice.status === "DRAFT") {
+        await paypalRequest(token, `/v2/invoicing/invoices/${encodeURIComponent(invoiceId)}/send`, "POST", { send_to_recipient: false, send_to_invoicer: false });
+        invoice = await paypalRequest(token, `/v2/invoicing/invoices/${encodeURIComponent(invoiceId)}`, "GET");
+      }
+      invoiceUrl = invoiceUrl
+        ?? invoice.links?.find((link: { rel: string }) => link.rel === "payer-view")?.href
+        ?? invoice.metadata?.recipient_view_url
+        ?? invoice.detail?.metadata?.recipient_view_url
+        ?? null;
       invoiceStatus = invoice.status ?? "UNKNOWN";
     } else {
       const email = authData.user.email;
       if (!email) return json({ error: "Your account needs an email address for PayPal checkout." }, 400);
       const invoice = await paypalRequest(token, "/v2/invoicing/invoices", "POST", {
         detail: {
-          invoice_number: `SF-${request.id.replaceAll("-", "").slice(0, 22)}`,
           reference: request.id,
           currency_code: "PHP",
           payment_term: { term_type: "DUE_ON_RECEIPT" },
@@ -93,17 +126,29 @@ Deno.serve(async (req) => {
         invoicer: { business_name: "StayFit Gym" },
         primary_recipients: [{ billing_info: { email_address: email } }],
         items: [{ name: request.plan_name, description: `${request.billing_period} StayFit Gym membership`, quantity: "1", unit_of_measure: "QUANTITY", unit_amount: { currency_code: "PHP", value: Number(request.amount).toFixed(2) } }],
-      });
-      invoiceId = invoice.id;
+      }, true);
+      invoiceId = typeof invoice.id === "string" ? invoice.id : undefined;
+      if (!invoiceId) {
+        const selfLink = invoice.links?.find((link: { rel: string; href: string }) => link.rel === "self")?.href;
+        invoiceId = typeof selfLink === "string" ? selfLink.match(/\/invoices\/([^/?]+)/)?.[1] : undefined;
+      }
+      if (!invoiceId) throw new Error("PayPal created the invoice but did not return its ID. Check the PayPal invoice list before retrying to avoid duplicate invoices.");
+      const { error: invoiceSaveError } = await admin.from("membership_plan_requests").update({
+        payment_method: "PayPal", payment_reference: invoiceId, payment_status: "submitted",
+        payment_submitted_at: new Date().toISOString(), paypal_invoice_id: invoiceId,
+      }).eq("id", request.id).eq("user_id", authData.user.id).eq("status", "pending");
+      if (invoiceSaveError) throw invoiceSaveError;
       await paypalRequest(token, `/v2/invoicing/invoices/${encodeURIComponent(invoiceId!)}/send`, "POST", { send_to_recipient: false, send_to_invoicer: false });
       invoiceUrl = invoice.links?.find((link: { rel: string }) => link.rel === "payer-view")?.href ?? null;
       if (!invoiceUrl) {
         const sentInvoice = await paypalRequest(token, `/v2/invoicing/invoices/${encodeURIComponent(invoiceId!)}`, "GET");
-        invoiceUrl = sentInvoice.links?.find((link: { rel: string }) => link.rel === "payer-view")?.href ?? null;
+        invoiceUrl = sentInvoice.links?.find((link: { rel: string }) => link.rel === "payer-view")?.href
+          ?? sentInvoice.metadata?.recipient_view_url
+          ?? sentInvoice.detail?.metadata?.recipient_view_url
+          ?? null;
       }
       const { error: updateError } = await admin.from("membership_plan_requests").update({
-        payment_method: "PayPal", payment_reference: invoiceId, payment_status: "submitted",
-        payment_submitted_at: new Date().toISOString(), paypal_invoice_id: invoiceId, paypal_invoice_url: invoiceUrl,
+        paypal_invoice_url: invoiceUrl,
       }).eq("id", request.id).eq("user_id", authData.user.id).eq("status", "pending");
       if (updateError) throw updateError;
     }
@@ -114,11 +159,9 @@ Deno.serve(async (req) => {
     }, { onConflict: "membership_plan_request_id" });
     if (paymentError) throw paymentError;
 
-    const qrResponse = await paypalRequest(token, `/v2/invoicing/invoices/${encodeURIComponent(invoiceId!)}/generate-qr-code`, "POST", { width: 400, height: 400 });
-    if (!qrResponse.image) throw new Error("PayPal did not return a payment QR code.");
-    return json({ invoice_id: invoiceId, invoice_url: invoiceUrl, invoice_status: invoiceStatus, qr_base64: qrResponse.image });
+    return json({ invoice_id: invoiceId, invoice_url: invoiceUrl, invoice_status: invoiceStatus });
   } catch (error) {
     console.error("create-plan-paypal-invoice:", error);
-    return json({ error: error instanceof Error ? error.message : "Could not start PayPal checkout." }, 400);
+    return json({ error: errorMessage(error) }, 400);
   }
 });

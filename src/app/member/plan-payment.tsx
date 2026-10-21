@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Image, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import * as WebBrowser from "expo-web-browser";
 import { currentUserId, getErrorMessage } from "../../lib/member-data";
 import { supabase } from "../../lib/supabase";
@@ -17,10 +17,23 @@ type PlanRequest = {
   paypal_invoice_url: string | null;
 };
 
+async function getCheckoutError(error: unknown) {
+  if (error && typeof error === "object" && "context" in error) {
+    const context = (error as { context?: unknown }).context;
+    if (context && typeof context === "object" && "json" in context && typeof (context as Response).json === "function") {
+      try {
+        const body = await (context as Response).clone().json();
+        if (body && typeof body === "object" && typeof body.error === "string") return body.error;
+        if (body && typeof body === "object" && typeof body.message === "string") return body.message;
+      } catch { /* Fall back to the SDK error text when the response isn't JSON. */ }
+    }
+  }
+  return getErrorMessage(error);
+}
+
 export default function PlanPayment() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const [request, setRequest] = useState<PlanRequest | null>(null);
-  const [qr, setQr] = useState("");
   const [paypalStatus, setPaypalStatus] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -40,13 +53,12 @@ export default function PlanPayment() {
       setRequest(row);
       if (row.status === "pending" && row.payment_status !== "verified") {
         const { data: checkout, error: checkoutError } = await supabase.functions.invoke("create-plan-paypal-invoice", { body: { request_id: row.id } });
-        if (checkoutError) throw checkoutError;
+        if (checkoutError) throw new Error(await getCheckoutError(checkoutError));
         if (checkout?.error) throw new Error(checkout.error);
-        setQr(checkout?.qr_base64 ?? "");
         setPaypalStatus(checkout?.invoice_status ?? "");
         setRequest({ ...row, paypal_invoice_id: checkout?.invoice_id ?? row.paypal_invoice_id, paypal_invoice_url: checkout?.invoice_url ?? row.paypal_invoice_url, payment_status: row.payment_status === "not_submitted" ? "submitted" : row.payment_status });
       }
-    } catch (e) { setError(getErrorMessage(e)); }
+    } catch (e) { setError(e instanceof Error ? e.message : getErrorMessage(e)); }
     finally { setLoading(false); setRefreshing(false); }
   }, [id]);
 
@@ -70,8 +82,8 @@ export default function PlanPayment() {
       {error ? <View style={styles.error}><Text style={styles.errorText}>{error}</Text></View> : null}
       {request ? <>
         <Text style={styles.eyebrow}>STAYFIT GYM</Text>
-        <Text style={styles.title}>{isConfirmed ? "Membership confirmed" : isRejected ? "Request declined" : "Scan to pay"}</Text>
-        <Text style={styles.subtitle}>{isConfirmed ? "Your plan is active and ready to use." : isRejected ? "Contact gym staff if you need help with this request." : "PayPal will securely collect the payment. The admin will verify the paid invoice and confirm your membership."}</Text>
+        <Text style={styles.title}>{isConfirmed ? "Membership confirmed" : isRejected ? "Request declined" : "Complete payment"}</Text>
+        <Text style={styles.subtitle}>{isConfirmed ? "Your plan is active and ready to use." : isRejected ? "Contact gym staff if you need help with this request." : "Continue to PayPal’s secure checkout and sign in there to pay. The admin will verify the payment and confirm your membership."}</Text>
 
         <View style={styles.summaryCard}>
           <View style={styles.summaryTop}><View><Text style={styles.label}>SELECTED PLAN</Text><Text style={styles.planName}>{request.plan_name}</Text></View><Ionicons name="logo-paypal" size={24} color="#79AFFF" /></View>
@@ -84,17 +96,17 @@ export default function PlanPayment() {
         {isRejected ? <View style={styles.error}><Text style={styles.errorText}>This request was declined. Contact gym staff for assistance.</Text></View> : null}
 
         {!isConfirmed && !isRejected && request.status === "pending" ? <>
-          <View style={styles.qrCard}>
-            {qr ? <Image source={{ uri: `data:image/png;base64,${qr}` }} style={styles.qrImage} resizeMode="contain" /> : <View style={styles.qrPlaceholder}><ActivityIndicator color={COLORS.blue} /></View>}
-            <Text style={styles.qrTitle}>{isPaid ? "Payment received by PayPal" : "PayPal invoice QR code"}</Text>
-            <Text style={styles.qrCaption}>{isPaid ? "Your payment is waiting for admin confirmation." : "Scan this with another device, or open the invoice below on this phone."}</Text>
+          <View style={styles.paymentCard}>
+            <View style={styles.paymentIcon}><Ionicons name={isPaid ? "checkmark-circle" : "lock-closed"} size={26} color={isPaid ? COLORS.green : COLORS.blue} /></View>
+            <Text style={styles.qrTitle}>{isPaid ? "Payment received by PayPal" : "Pay securely with PayPal"}</Text>
+            <Text style={styles.qrCaption}>{isPaid ? "Your payment is waiting for admin confirmation." : "The PayPal-hosted checkout will ask you to sign in and choose a payment method."}</Text>
             {request.paypal_invoice_id ? <Text style={styles.invoiceId}>Invoice {request.paypal_invoice_id}</Text> : null}
           </View>
-          {request.paypal_invoice_url ? <TouchableOpacity style={styles.openButton} onPress={() => void WebBrowser.openBrowserAsync(request.paypal_invoice_url!)}><Ionicons name="open-outline" size={17} color={COLORS.text} /><Text style={styles.openButtonText}>OPEN PAYPAL CHECKOUT</Text></TouchableOpacity> : null}
+          {request.paypal_invoice_url ? <TouchableOpacity style={styles.openButton} onPress={() => void WebBrowser.openBrowserAsync(request.paypal_invoice_url!)}><Ionicons name="logo-paypal" size={18} color={COLORS.text} /><Text style={styles.openButtonText}>CONTINUE TO PAYPAL</Text></TouchableOpacity> : <View style={styles.error}><Text style={styles.errorText}>PayPal checkout link is not available yet. Refresh this page to try again.</Text></View>}
           <TouchableOpacity style={[styles.refreshButton, refreshing && styles.disabled]} disabled={refreshing || loading} onPress={() => { setRefreshing(true); void load(false); }}>
             {refreshing ? <ActivityIndicator color={COLORS.blue} /> : <><Ionicons name="refresh" size={16} color={COLORS.blue} /><Text style={styles.refreshText}>REFRESH PAYMENT STATUS</Text></>}
           </TouchableOpacity>
-          <View style={styles.info}><Ionicons name="shield-checkmark-outline" size={18} color={COLORS.blue} /><Text style={styles.infoText}>Your QR code opens a PayPal-hosted invoice. Your membership only activates after PayPal confirms payment and the admin approves the plan.</Text></View>
+          <View style={styles.info}><Ionicons name="shield-checkmark-outline" size={18} color={COLORS.blue} /><Text style={styles.infoText}>Your payment is handled on PayPal. Your membership only activates after PayPal confirms payment and the admin approves the plan.</Text></View>
         </> : null}
       </> : null}
 
@@ -127,9 +139,8 @@ const styles = StyleSheet.create({
   amountRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
   amount: { color: COLORS.text, fontSize: 19, fontWeight: "800" },
   muted: { color: COLORS.muted, fontSize: 11, lineHeight: 16 },
-  qrCard: { alignItems: "center", backgroundColor: COLORS.panel, borderColor: COLORS.borderBright, borderWidth: 1, borderRadius: 15, padding: 15, marginBottom: 12 },
-  qrImage: { width: 208, height: 208, backgroundColor: "white", borderRadius: 8, marginBottom: 13 },
-  qrPlaceholder: { width: 208, height: 208, backgroundColor: COLORS.panelDeep, borderRadius: 8, alignItems: "center", justifyContent: "center", marginBottom: 13 },
+  paymentCard: { alignItems: "center", backgroundColor: COLORS.panel, borderColor: COLORS.borderBright, borderWidth: 1, borderRadius: 15, padding: 22, marginBottom: 12 },
+  paymentIcon: { width: 58, height: 58, borderRadius: 29, backgroundColor: COLORS.panelDeep, alignItems: "center", justifyContent: "center", marginBottom: 12 },
   qrTitle: { color: COLORS.text, fontSize: 14, fontWeight: "800", textAlign: "center" },
   qrCaption: { color: COLORS.muted, fontSize: 10, lineHeight: 15, textAlign: "center", marginTop: 6 },
   invoiceId: { color: COLORS.dim, fontSize: 9, marginTop: 8 },
