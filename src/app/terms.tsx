@@ -1,3 +1,4 @@
+import { createThemeStyles, useThemeMode } from "../lib/theme";
 import { router } from "expo-router";
 import { useState } from "react";
 import {
@@ -10,6 +11,7 @@ import {
 } from "react-native";
 
 export default function Terms() {
+  useThemeMode();
   const [agreed, setAgreed] = useState(false);
 
   return (
@@ -189,7 +191,7 @@ export default function Terms() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   container: {
     flex: 1,
     backgroundColor: "#F5F9FC",

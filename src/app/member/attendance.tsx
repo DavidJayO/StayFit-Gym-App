@@ -1,8 +1,10 @@
+import { createThemeStyles, useThemeMode } from "../../lib/theme";
 
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
-import { useEffect, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
 import {
+    RefreshControl,
     SafeAreaView,
     ScrollView,
     StyleSheet,
@@ -14,9 +16,13 @@ import { supabase } from "../../lib/supabase";
 import { currentUserId, getErrorMessage } from "../../lib/member-data";
 
 export default function Attendance() {
+  useThemeMode();
   const [attendanceRecords, setAttendanceRecords] = useState<any[]>([]);
   const [error, setError] = useState("");
-  useEffect(() => { void (async () => {
+  const [loading, setLoading] = useState(false);
+  const loadAttendance = useCallback(async () => {
+    setLoading(true);
+    setError("");
     try {
       const userId = await currentUserId();
       const { data, error } = await supabase.from("attendance").select("id,checked_in_at,checked_out_at").eq("user_id", userId).order("checked_in_at", { ascending: false });
@@ -26,7 +32,9 @@ export default function Attendance() {
         return { id: r.id, date: new Date(r.checked_in_at).toLocaleDateString(), time: new Date(r.checked_in_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), type: "Gym check-in", duration: minutes === null ? "In progress" : `${Math.floor(minutes / 60)}h ${minutes % 60}m`, completed: minutes !== null, checkedAt: r.checked_in_at };
       }));
     } catch (e) { setError(getErrorMessage(e)); }
-  })(); }, []);
+    finally { setLoading(false); }
+  }, []);
+  useFocusEffect(useCallback(() => { void loadAttendance(); }, [loadAttendance]));
   const now = new Date();
   const visitsThisWeek = attendanceRecords.filter((r) => new Date(r.checkedAt).getTime() >= now.getTime() - 7 * 86400000).length;
   const visitsThisMonth = attendanceRecords.filter((r) => { const d = new Date(r.checkedAt); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); }).length;
@@ -59,6 +67,7 @@ export default function Attendance() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void loadAttendance()} tintColor="#4D8DFF" />}
       >
         <Text style={styles.eyebrow}>STAYFIT GYM</Text>
         <Text style={styles.title}>Attendance History</Text>
@@ -232,7 +241,7 @@ function NavItem({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   container: { flex: 1, backgroundColor: "#06111C" },
   header: {
     height: 54, flexDirection: "row", alignItems: "center",

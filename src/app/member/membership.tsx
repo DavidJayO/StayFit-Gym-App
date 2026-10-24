@@ -1,3 +1,4 @@
+import { createThemeStyles, useThemeMode } from "../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -8,6 +9,7 @@ import { currentUserId, formatDate, loadMembership, Membership, getErrorMessage 
 const BLUE = "#1769FF";
 
 export default function MembershipScreen() {
+  useThemeMode();
   const [membership, setMembership] = useState<Membership | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -124,7 +126,7 @@ export default function MembershipScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   container: { flex: 1, backgroundColor: "#06111C" },
   content: { padding: 20, paddingTop: 55, paddingBottom: 30 },
   header: { color: "#FFFFFF", fontSize: 25, fontWeight: "700" },

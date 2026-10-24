@@ -1,3 +1,4 @@
+import { createThemeStyles, useThemeMode } from "../../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
@@ -26,6 +27,7 @@ function localDate(date = new Date()) {
 }
 
 export default function AdminMemberDetail() {
+  useThemeMode();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [detail, setDetail] = useState<Detail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -128,7 +130,7 @@ export default function AdminMemberDetail() {
     <AdminSectionTitle>Add payment record</AdminSectionTitle>
     <AdminPanel>
       <Field label="Description" value={paymentForm.description} onChangeText={(description) => setPaymentForm({ ...paymentForm, description })} placeholder="Monthly membership" />
-      <View style={styles.fieldRow}><View style={{ flex: 1 }}><Field label="Amount (PHP)" value={paymentForm.amount} onChangeText={(amount) => setPaymentForm({ ...paymentForm, amount })} placeholder="1500" keyboardType="decimal-pad" /></View><View style={{ flex: 1 }}><Field label="Method" value={paymentForm.method} onChangeText={(method) => setPaymentForm({ ...paymentForm, method })} placeholder="Cash or GCash" /></View></View>
+      <View style={styles.fieldRow}><View style={{ flex: 1 }}><Field label="Amount (PHP)" value={paymentForm.amount} onChangeText={(amount) => setPaymentForm({ ...paymentForm, amount })} placeholder="1500" keyboardType="decimal-pad" /></View><View style={{ flex: 1 }}><Field label="Method" value={paymentForm.method} onChangeText={(method) => setPaymentForm({ ...paymentForm, method })} placeholder="Cash or PayPal" /></View></View>
       <View style={styles.chips}>{(["paid", "pending"] as const).map((status) => <TouchableOpacity key={status} style={[styles.chip, paymentForm.status === status && styles.chipSelected]} onPress={() => setPaymentForm({ ...paymentForm, status })}><Text style={[styles.chipText, paymentForm.status === status && styles.chipTextSelected]}>{status.toUpperCase()}</Text></TouchableOpacity>)}</View>
       <AdminButton label={busy ? "Saving…" : "Add payment record"} disabled={busy} onPress={() => void addPayment()} />
     </AdminPanel>
@@ -146,7 +148,7 @@ function Field(props: { label: string; value: string; onChangeText: (value: stri
   return <View style={styles.field}><Text style={styles.label}>{props.label}</Text><TextInput value={props.value} onChangeText={props.onChangeText} placeholder={props.placeholder} placeholderTextColor={C.dim} keyboardType={props.keyboardType ?? "default"} multiline={props.multiline} textAlignVertical={props.multiline ? "top" : "center"} style={[styles.input, props.multiline && styles.multiline]} /></View>;
 }
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   memberSummary: { alignItems: "center", paddingVertical: 20 },
   avatar: { width: 54, height: 54, borderRadius: 18, backgroundColor: C.panelDeep, borderWidth: 1, borderColor: C.borderBright, alignItems: "center", justifyContent: "center", marginBottom: 9 },
   memberName: { color: C.text, fontSize: 15, fontWeight: "800" },

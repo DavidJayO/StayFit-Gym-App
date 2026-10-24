@@ -1,3 +1,4 @@
+import { createThemeStyles, useThemeMode } from "../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
@@ -11,8 +12,10 @@ import {
     View,
 } from "react-native";
 import { loadMembership, loadProfile, getErrorMessage } from "../../lib/member-data";
+import { ThemeSelector } from "../../components/theme-selector";
 
 export default function Profile() {
+  useThemeMode();
   const [name, setName] = useState("Member");
   const [email, setEmail] = useState("");
   const [membershipLabel, setMembershipLabel] = useState("No active membership");
@@ -129,6 +132,10 @@ export default function Profile() {
 
         </View>
 
+        <View style={styles.appearanceCard}>
+          <ThemeSelector />
+        </View>
+
         {/* LOGOUT */}
         <TouchableOpacity
           style={styles.logoutButton}
@@ -196,7 +203,7 @@ function ProfileItem({
    STYLES
 -------------------------------- */
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   container: {
     flex: 1,
     backgroundColor: "#06111C",
@@ -263,6 +270,15 @@ const styles = StyleSheet.create({
 
   menuContainer: {
     gap: 9,
+  },
+
+  appearanceCard: {
+    marginTop: 18,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: "#102131",
+    borderWidth: 1,
+    borderColor: "#1C3040",
   },
 
   menuItem: {

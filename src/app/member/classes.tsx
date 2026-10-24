@@ -1,3 +1,4 @@
+import { createThemeStyles, useThemeMode } from "../../lib/theme";
 
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -21,6 +22,7 @@ const categories = ["All", "Strength", "Cardio", "HIIT", "Yoga"];
 type GymClass = { id: string; name: string; category: string; trainer_name: string; starts_at: string; duration_minutes: number; capacity: number; booked_count: number };
 
 export default function Classes() {
+  useThemeMode();
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [classes, setClasses] = useState<GymClass[]>([]);
   const [bookedClasses, setBookedClasses] = useState<string[]>([]);
@@ -352,7 +354,7 @@ function NavItem({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   container: {
     flex: 1,
     backgroundColor: "#06111C",

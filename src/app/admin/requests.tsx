@@ -1,12 +1,14 @@
+import { createThemeStyles, useThemeMode } from "../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { AdminLoading, AdminMessage, AdminPanel, AdminScreen, AdminSectionTitle, AdminColors as C } from "../../components/admin-ui";
+import { AdminButton, AdminLoading, AdminMessage, AdminPanel, AdminScreen, AdminSectionTitle, AdminColors as C } from "../../components/admin-ui";
 import { AdminRequestKind, errorMessage, formatAdminDate, loadAdminRequests, reviewAdminRequest } from "../../lib/admin-data";
 import { supabase } from "../../lib/supabase";
 
 export default function AdminRequests() {
+  useThemeMode();
   const [rows, setRows] = useState<any[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -29,6 +31,14 @@ export default function AdminRequests() {
         }
         if (data?.error) throw new Error(data.error);
         if (!data?.paid || !data?.activated) throw new Error(`PayPal still reports this invoice as ${String(data?.paypal_status || "unpaid").toLowerCase()}. The membership was not activated.`);
+      } else if (row.kind === "daily_pass" && row.payment_method === "PayPal" && status === "approved") {
+        const { data, error: verifyError } = await supabase.functions.invoke("verify-paypal-daily-pass-payment", { body: { request_id: row.id } });
+        if (verifyError) {
+          const responseBody = await (verifyError as any).context?.clone?.().json?.().catch(() => null);
+          throw new Error(responseBody?.error || verifyError.message);
+        }
+        if (data?.error) throw new Error(data.error);
+        if (!data?.paid || !data?.approved) throw new Error(`PayPal still reports this invoice as ${String(data?.paypal_status || "unpaid").toLowerCase()}. The daily pass was not approved.`);
       } else {
         await reviewAdminRequest(row.kind as AdminRequestKind, row.id, status);
       }
@@ -40,7 +50,8 @@ export default function AdminRequests() {
 
   const pending = rows.filter((row) => row.status === "pending");
   return <AdminScreen title="Member Requests">
-    <AdminMessage tone="info">Review member requests here. For a plan request, check the PayPal sandbox invoice. Choose “Verify PayPal & activate” only after PayPal reports the invoice as paid; the app verifies the invoice and activates the membership together.</AdminMessage>
+    <AdminMessage tone="info">Review requests here. For PayPal daily passes, verify the invoice here; cash passes can be approved here and marked paid under Payments. The entry QR is issued only after approval and payment verification. Scan the code at the gym to check the member in.</AdminMessage>
+    <AdminButton label="Scan daily pass entry QR" onPress={() => router.push("/admin/daily-pass-scanner" as never)} secondary />
     {error ? <AdminMessage>{error}</AdminMessage> : null}
     <AdminSectionTitle>{loading ? "Loading requests" : `${pending.length} pending · ${rows.length} total`}</AdminSectionTitle>
     {loading && rows.length === 0 ? <AdminLoading /> : rows.length === 0 ? <AdminPanel><Text style={styles.muted}>No member requests have been submitted.</Text></AdminPanel> : rows.map((row) => <AdminPanel key={`${row.kind}-${row.id}`} style={styles.card}>
@@ -52,13 +63,19 @@ export default function AdminRequests() {
         {row.paypal_invoice_id ? <Text style={styles.paymentDetail}>PayPal invoice: {row.paypal_invoice_id}</Text> : null}
         {row.payment_status === "submitted" ? <Text style={styles.verifyHint}>Check the invoice with PayPal before activating this plan.</Text> : row.status === "pending" ? <Text style={styles.verifyHint}>Waiting for the member to create a PayPal invoice.</Text> : null}
       </View> : null}
+      {row.kind === "daily_pass" ? <View style={styles.paymentBox}>
+        <Text style={styles.paymentTitle}>PAYMENT · {String(row.payment_status || "pending").replaceAll("_", " ").toUpperCase()}</Text>
+        <Text style={styles.paymentDetail}>Method: {row.payment_method}</Text>
+        {row.paypal_invoice_id ? <Text style={styles.paymentDetail}>PayPal invoice: {row.paypal_invoice_id}</Text> : null}
+        <Text style={styles.paymentDetail}>{row.checked_in_at ? `Checked in ${formatAdminDate(row.checked_in_at)}` : row.status === "approved" && row.payment_status === "paid" ? "Entry QR is ready for the member on the visit date." : row.payment_method === "PayPal" ? row.paypal_invoice_id ? "Verify the invoice after PayPal reports it paid." : "Waiting for the member to start PayPal checkout." : "Approve the request, then mark cash paid under Payments to issue the entry QR."}</Text>
+      </View> : null}
       <TouchableOpacity style={styles.manageMember} onPress={() => router.push(`/admin/member/${row.user_id}` as never)}><Text style={styles.manageText}>Open member record</Text><Ionicons name="chevron-forward" size={14} color={C.blue} /></TouchableOpacity>
-      {row.status === "pending" ? <View style={styles.actions}><TouchableOpacity disabled={busyId === row.id} style={[styles.button, styles.rejectButton]} onPress={() => void review(row, "rejected")}><Text style={styles.rejectText}>Reject</Text></TouchableOpacity>{row.kind === "plan" && !row.paypal_invoice_id ? <View style={[styles.button, styles.waitButton]}><Text style={styles.waitText}>Awaiting PayPal</Text></View> : <TouchableOpacity disabled={busyId === row.id} style={[styles.button, styles.approveButton]} onPress={() => void review(row, "approved")}><Text style={styles.approveText}>{busyId === row.id ? "Checking PayPal…" : row.kind === "plan" ? "Verify PayPal & activate" : "Approve"}</Text></TouchableOpacity>}</View> : null}
+      {row.status === "pending" ? <View style={styles.actions}><TouchableOpacity disabled={busyId === row.id} style={[styles.button, styles.rejectButton]} onPress={() => void review(row, "rejected")}><Text style={styles.rejectText}>Reject</Text></TouchableOpacity>{(row.kind === "plan" && !row.paypal_invoice_id) || (row.kind === "daily_pass" && row.payment_method === "PayPal" && !row.paypal_invoice_id) ? <View style={[styles.button, styles.waitButton]}><Text style={styles.waitText}>Awaiting PayPal</Text></View> : <TouchableOpacity disabled={busyId === row.id} style={[styles.button, styles.approveButton]} onPress={() => void review(row, "approved")}><Text style={styles.approveText}>{busyId === row.id ? "Verifying PayPal…" : row.kind === "plan" ? "Verify PayPal & activate" : row.kind === "daily_pass" && row.payment_method === "PayPal" ? "Verify PayPal & approve" : "Approve"}</Text></TouchableOpacity>}</View> : null}
     </AdminPanel>)}
   </AdminScreen>;
 }
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   card: { marginBottom: 9 },
   top: { flexDirection: "row", alignItems: "center", gap: 9 },
   icon: { width: 38, height: 38, borderRadius: 10, backgroundColor: C.panelDeep, alignItems: "center", justifyContent: "center" },

@@ -1,7 +1,10 @@
+import { createThemeStyles, useThemeMode } from "../../lib/theme";
 
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
+import * as WebBrowser from "expo-web-browser";
+import QRCode from "react-native-qrcode-svg";
 import {
     Alert,
     SafeAreaView,
@@ -17,20 +20,54 @@ import { currentUserId, loadProfile, getErrorMessage } from "../../lib/member-da
 
 const BLUE = "#1769FF";
 
+type DailyPassRecord = { id: string; visit_on: string; status: string; payment_method: string; payment_status: string; access_token: string | null; checked_in_at: string | null; paypal_invoice_id: string | null; paypal_invoice_url: string | null };
+const localIsoDate = (date = new Date()) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
 export default function DailyPass() {
+  useThemeMode();
   const [visitDate, setVisitDate] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; });
-  const [paymentMethod, setPaymentMethod] = useState("GCash");
+  const [paymentMethod, setPaymentMethod] = useState("PayPal");
   const [fullName, setFullName] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [latestRequest, setLatestRequest] = useState("");
+  const [latestPass, setLatestPass] = useState<DailyPassRecord | null>(null);
+
+  const refreshPassStatus = async () => {
+    try {
+      const userId = await currentUserId();
+      const { data, error } = await supabase.from("daily_pass_requests").select("id,status,visit_on,payment_method,payment_status,access_token,checked_in_at,paypal_invoice_id,paypal_invoice_url").eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (error) throw error;
+      setLatestPass(data as DailyPassRecord | null);
+      if (data) setLatestRequest(`Latest request: ${data.status.toUpperCase()} · visit ${data.visit_on} · payment ${data.payment_status.toUpperCase()}`);
+    } catch (e) { Alert.alert("Pass status unavailable", getErrorMessage(e)); }
+  };
+
+  const startPaypalCheckout = async (request: DailyPassRecord) => {
+    try {
+      const { data, error } = await supabase.functions.invoke("create-daily-pass-paypal-invoice", { body: { request_id: request.id } });
+      if (error) {
+        const responseBody = await (error as any).context?.clone?.().json?.().catch(() => null);
+        throw new Error(responseBody?.error || error.message);
+      }
+      if (data?.error) throw new Error(data.error);
+      const invoiceUrl = data?.invoice_url ?? request.paypal_invoice_url;
+      setLatestPass((current) => current?.id === request.id ? { ...current, payment_status: "submitted", paypal_invoice_id: data?.invoice_id ?? current.paypal_invoice_id, paypal_invoice_url: invoiceUrl } : current);
+      setLatestRequest(`Latest request: PENDING · visit ${request.visit_on} · PayPal payment submitted`);
+      if (!invoiceUrl) throw new Error("PayPal checkout link is not available yet. Refresh the pass and try again.");
+      await WebBrowser.openBrowserAsync(invoiceUrl);
+    } catch (e) { Alert.alert("Could not start PayPal checkout", getErrorMessage(e)); }
+  };
 
   useEffect(() => { void (async () => {
     try {
       const [profile, userId] = await Promise.all([loadProfile(), currentUserId()]);
       setFullName(profile.full_name);
-      const { data, error } = await supabase.from("daily_pass_requests").select("status,visit_on").eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      const { data, error } = await supabase.from("daily_pass_requests").select("id,status,visit_on,payment_method,payment_status,access_token,checked_in_at,paypal_invoice_id,paypal_invoice_url").eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (error) throw error;
-      if (data) setLatestRequest(`Latest request: ${data.status.toUpperCase()} · visit ${data.visit_on}`);
+      if (data) {
+        setLatestPass(data as DailyPassRecord);
+        setLatestRequest(`Latest request: ${data.status.toUpperCase()} · visit ${data.visit_on} · payment ${data.payment_status.toUpperCase()}`);
+      }
     } catch (e) { Alert.alert("Member data unavailable", getErrorMessage(e)); }
   })(); }, []);
 
@@ -56,11 +93,13 @@ export default function DailyPass() {
 
     try {
       const userId = await currentUserId();
-      const { error } = await supabase.from("daily_pass_requests").insert({ user_id: userId, visit_on: visitDate, payment_method: paymentMethod === "Cash at Gym" ? "Cash" : paymentMethod });
+      const { data, error } = await supabase.from("daily_pass_requests").insert({ user_id: userId, visit_on: visitDate, payment_method: paymentMethod }).select("id,status,visit_on,payment_method,payment_status,access_token,checked_in_at,paypal_invoice_id,paypal_invoice_url").single();
       if (error) throw error;
+      setLatestPass(data as DailyPassRecord);
       setSubmitted(true);
-      setLatestRequest(`Latest request: PENDING · visit ${visitDate}`);
-      Alert.alert("Request submitted", "Your daily pass request is saved. Payment and entry must be confirmed by gym staff.");
+      setLatestRequest(`Latest request: PENDING · visit ${visitDate} · payment PENDING`);
+      if (paymentMethod === "PayPal") await startPaypalCheckout(data as DailyPassRecord);
+      else Alert.alert("Request submitted", "Your daily pass request is saved. Staff must approve it and record your cash payment before the entry QR becomes available.");
     } catch (e) { Alert.alert("Request failed", getErrorMessage(e)); }
   };
 
@@ -131,9 +170,23 @@ export default function DailyPass() {
             color="#4D8DFF"
           />
           <Text style={styles.noticeText}>
-            Submitting saves a request for gym staff. This does not charge your payment method or activate entry automatically.
+            {paymentMethod === "PayPal" ? "PayPal opens its secure hosted checkout. The admin verifies payment and approves the pass before the entry QR is issued." : "Submit the request for staff approval. Pay cash at the gym; staff records payment before issuing the entry QR."}
           </Text>
         </View>
+
+        {latestPass ? <View style={styles.accessCard}>
+          <Text style={styles.sectionTitle}>Entry Pass</Text>
+          {latestPass.status !== "approved" ? <Text style={styles.accessMessage}>{latestPass.payment_method === "PayPal" && latestPass.payment_status === "submitted" ? "Your PayPal payment is awaiting admin verification." : `Your request is ${latestPass.status}. The entry QR appears after staff approves the request and records payment.`}</Text>
+            : latestPass.payment_status !== "paid" ? <Text style={styles.accessMessage}>Approved for {latestPass.visit_on}. The entry QR will appear after staff confirms your payment.</Text>
+            : latestPass.checked_in_at ? <View style={styles.checkedIn}><Ionicons name="checkmark-circle" size={20} color="#54D98C" /><Text style={styles.accessMessage}>This pass was already used for entry.</Text></View>
+            : latestPass.visit_on < localIsoDate() ? <Text style={styles.accessMessage}>This daily pass has expired. Submit a new request for another visit.</Text>
+            : latestPass.visit_on !== localIsoDate() ? <Text style={styles.accessMessage}>Your pass is paid and approved for {latestPass.visit_on}. The entry QR will be available on that visit date.</Text>
+            : latestPass.access_token ? <>
+              <View style={styles.qrCard}><QRCode value={`STAYFIT-DAYPASS:${latestPass.access_token}`} size={210} backgroundColor="#FFFFFF" color="#06111C" /></View>
+              <Text style={styles.qrCaption}>Show this entry QR to gym staff on {latestPass.visit_on}. It can be scanned once.</Text>
+            </> : <Text style={styles.accessMessage}>Your entry pass is being prepared. Refresh this page shortly.</Text>}
+          <TouchableOpacity style={styles.refreshPass} onPress={() => void refreshPassStatus()}><Ionicons name="refresh-outline" size={15} color="#4D8DFF" /><Text style={styles.refreshPassText}>Refresh pass status</Text></TouchableOpacity>
+        </View> : null}
 
         <Text style={styles.sectionTitle}>Pass Details</Text>
 
@@ -158,8 +211,8 @@ export default function DailyPass() {
           <Text style={styles.label}>PAYMENT METHOD</Text>
 
           {[
-            { name: "GCash", icon: "phone-portrait-outline" as const },
-                { name: "Cash", icon: "cash-outline" as const },
+            { name: "PayPal", icon: "logo-paypal" as const },
+            { name: "Cash", icon: "cash-outline" as const },
           ].map((method) => {
             const active = paymentMethod === method.name;
 
@@ -187,6 +240,8 @@ export default function DailyPass() {
             );
           })}
 
+          {latestPass?.payment_method === "PayPal" && latestPass.status === "pending" && latestPass.payment_status !== "paid" ? <TouchableOpacity style={styles.paypalButton} onPress={() => void startPaypalCheckout(latestPass)}><Ionicons name="logo-paypal" size={18} color="#FFFFFF" /><Text style={styles.purchaseButtonText}>{latestPass.paypal_invoice_url ? "CONTINUE TO PAYPAL" : "RETRY PAYPAL CHECKOUT"}</Text></TouchableOpacity> : null}
+
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Total Amount</Text>
             <Text style={styles.totalPrice}>₱150.00</Text>
@@ -199,7 +254,7 @@ export default function DailyPass() {
           >
             <Ionicons name="receipt-outline" size={19} color="#FFFFFF" />
             <Text style={styles.purchaseButtonText}>
-              {submitted ? "SUBMIT ANOTHER REQUEST" : "REQUEST DAILY PASS"}
+              {submitted ? "SUBMIT ANOTHER REQUEST" : paymentMethod === "PayPal" ? "REQUEST & PAY WITH PAYPAL" : "REQUEST DAILY PASS"}
             </Text>
           </TouchableOpacity>
 
@@ -283,7 +338,7 @@ function NavItem({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   container: { flex: 1, backgroundColor: "#06111C" },
   header: {
     height: 54, flexDirection: "row", alignItems: "center",
@@ -328,6 +383,13 @@ const styles = StyleSheet.create({
     padding: 13, marginBottom: 25,
   },
   noticeText: { color: "#98A2B3", fontSize: 10, lineHeight: 17, flex: 1 },
+  accessCard: { backgroundColor: "#102131", borderWidth: 1, borderColor: "#1D3A55", borderRadius: 16, padding: 16, marginBottom: 22, alignItems: "center" },
+  accessMessage: { color: "#98A2B3", fontSize: 11, lineHeight: 17, textAlign: "center" },
+  checkedIn: { flexDirection: "row", alignItems: "center", gap: 8 },
+  qrCard: { backgroundColor: "#FFFFFF", padding: 14, borderRadius: 12, marginVertical: 10 },
+  qrCaption: { color: "#98A2B3", fontSize: 10, lineHeight: 16, textAlign: "center" },
+  refreshPass: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, marginTop: 5 },
+  refreshPassText: { color: "#4D8DFF", fontSize: 10, fontWeight: "700" },
   sectionTitle: { color: "#FFFFFF", fontSize: 16, fontWeight: "700", marginBottom: 13 },
   formCard: {
     backgroundColor: "#102131", borderWidth: 1,
@@ -375,6 +437,7 @@ const styles = StyleSheet.create({
     justifyContent: "center", gap: 9, backgroundColor: BLUE,
     height: 48, borderRadius: 10, marginTop: 20,
   },
+  paypalButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, backgroundColor: "#0B1A28", borderWidth: 1, borderColor: "#1769FF", height: 46, borderRadius: 10, marginTop: 11 },
   purchaseButtonText: { color: "#FFFFFF", fontSize: 11, fontWeight: "800", letterSpacing: 0.4 },
   pendingNotice: {
     flexDirection: "row", alignItems: "flex-start", gap: 8,

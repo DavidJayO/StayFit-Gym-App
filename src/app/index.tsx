@@ -1,3 +1,4 @@
+import { createThemeStyles, useThemeMode } from "../lib/theme";
 import { router } from "expo-router";
 import { useEffect } from "react";
 import {
@@ -11,6 +12,7 @@ import {
 import { supabase } from "../lib/supabase";
 
 export default function Index() {
+  useThemeMode();
   useEffect(() => {
     let active = true;
     void supabase.auth.getSession().then(async ({ data }) => {
@@ -98,7 +100,7 @@ export default function Index() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   container: {
     flex: 1,
     backgroundColor: "#06111C",

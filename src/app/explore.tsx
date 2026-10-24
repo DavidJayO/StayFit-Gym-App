@@ -1,3 +1,4 @@
+import { createThemeStyles, useThemeMode } from "../lib/theme";
 import { Image } from 'expo-image';
 import { SymbolView } from 'expo-symbols';
 import { Platform, Pressable, ScrollView, StyleSheet } from 'react-native';
@@ -12,6 +13,7 @@ import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export default function TabTwoScreen() {
+  useThemeMode();
   const safeAreaInsets = useSafeAreaInsets();
   const insets = {
     ...safeAreaInsets,
@@ -125,7 +127,7 @@ export default function TabTwoScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   scrollView: {
     flex: 1,
   },

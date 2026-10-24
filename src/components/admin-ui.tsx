@@ -2,28 +2,19 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { ReactElement, ReactNode } from "react";
 import { ActivityIndicator, RefreshControlProps, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { createThemeStyles, getThemePalette } from "../lib/theme";
 
 export const AdminColors = {
-  background: "#06111C",
-  panel: "#102131",
-  panelDeep: "#0B1A28",
-  border: "#1C3040",
-  borderBright: "#1D3A55",
-  blue: "#4D8DFF",
-  blueStrong: "#1769FF",
-  cyan: "#169BFF",
-  text: "#FFFFFF",
-  muted: "#98A2B3",
-  dim: "#667085",
-  green: "#1ED760",
-  red: "#FF8585",
+  background: "#06111C", panel: "#102131", panelDeep: "#0B1A28", border: "#1C3040",
+  borderBright: "#1D3A55", blue: "#4D8DFF", blueStrong: "#1769FF", cyan: "#169BFF",
+  text: "#FFFFFF", muted: "#98A2B3", dim: "#667085", green: "#1ED760", red: "#FF8585",
 } as const;
 
 export function AdminScreen({ title, children, scroll = true, backRoute = "/admin/dashboard", refreshControl }: { title: string; children: ReactNode; scroll?: boolean; backRoute?: string; refreshControl?: ReactElement<RefreshControlProps> }) {
   return (
     <SafeAreaView style={ui.container}>
       {scroll ? <ScrollView contentContainerStyle={ui.content} showsVerticalScrollIndicator={false} refreshControl={refreshControl}>
-        <View style={ui.header}><TouchableOpacity style={ui.backButton} onPress={() => router.replace(backRoute as never)}><Ionicons name="arrow-back" size={20} color={AdminColors.text} /></TouchableOpacity><View style={{ flex: 1 }}><Text style={ui.eyebrow}>STAYFIT GYM · ADMIN</Text><Text style={ui.title}>{title}</Text></View></View>
+        <View style={ui.header}><TouchableOpacity style={ui.backButton} onPress={() => router.replace(backRoute as never)}><Ionicons name="arrow-back" size={20} color={getThemePalette().text} /></TouchableOpacity><View style={{ flex: 1 }}><Text style={ui.eyebrow}>STAYFIT GYM · ADMIN</Text><Text style={ui.title}>{title}</Text></View></View>
         {children}
         <View style={{ height: 90 }} />
       </ScrollView> : children}
@@ -64,7 +55,7 @@ export function AdminButton({ label, onPress, disabled, secondary = false }: { l
   return <TouchableOpacity disabled={disabled} onPress={onPress} activeOpacity={0.8} style={[ui.button, secondary && ui.secondaryButton, disabled && { opacity: 0.55 }]}><Text style={[ui.buttonText, secondary && ui.secondaryButtonText]}>{label}</Text></TouchableOpacity>;
 }
 
-const ui = StyleSheet.create({
+const ui = createThemeStyles({
   container: { flex: 1, backgroundColor: AdminColors.background },
   content: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 110 },
   header: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 20 },

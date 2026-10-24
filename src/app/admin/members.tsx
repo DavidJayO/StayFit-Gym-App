@@ -1,3 +1,4 @@
+import { createThemeStyles, useThemeMode } from "../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -6,6 +7,7 @@ import { AdminLoading, AdminMessage, AdminPanel, AdminScreen, AdminSectionTitle,
 import { errorMessage, formatAdminDate, loadAdminMembers } from "../../lib/admin-data";
 
 export default function AdminMembers() {
+  useThemeMode();
   const [rows, setRows] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
@@ -37,7 +39,7 @@ export default function AdminMembers() {
   </AdminScreen>;
 }
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   search: { minHeight: 46, backgroundColor: C.panelDeep, borderColor: C.border, borderWidth: 1, borderRadius: 10, paddingHorizontal: 13, color: C.text, fontSize: 12 },
   memberCard: { flexDirection: "row", alignItems: "flex-start", padding: 12, marginBottom: 10, backgroundColor: C.panel, borderRadius: 12, borderWidth: 1, borderColor: C.border },
   avatar: { width: 40, height: 40, borderRadius: 12, backgroundColor: C.panelDeep, borderWidth: 1, borderColor: C.borderBright, alignItems: "center", justifyContent: "center", marginRight: 10 },

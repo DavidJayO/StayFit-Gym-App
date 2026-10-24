@@ -1,3 +1,4 @@
+import { createThemeStyles, useThemeMode } from "../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
@@ -8,6 +9,7 @@ import { errorMessage, formatAdminTime, loadAdminOverview } from "../../lib/admi
 type Overview = Awaited<ReturnType<typeof loadAdminOverview>>;
 
 export default function AdminDashboard() {
+  useThemeMode();
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -48,13 +50,15 @@ export default function AdminDashboard() {
             <Action icon="people-outline" label="Members" onPress={() => router.push("/admin/members" as never)} />
             <Action icon="calendar-outline" label="Classes" onPress={() => router.push("/admin/classes" as never)} />
             <Action icon="wallet-outline" label="Payments" onPress={() => router.push("/admin/payments" as never)} />
+            <Action icon="clipboard-outline" label="Bookings" onPress={() => router.push("/admin/bookings" as never)} />
             <Action icon="file-tray-full-outline" label={`Requests${(data?.pendingRequests ?? 0) ? ` · ${data?.pendingRequests}` : ""}`} onPress={() => router.push("/admin/requests" as never)} />
+            <Action icon="qr-code-outline" label="Scan Daily Pass" onPress={() => router.push("/admin/daily-pass-scanner" as never)} />
           </View>
 
           <AdminSectionTitle>Upcoming Classes</AdminSectionTitle>
           {(data?.classes.length ?? 0) === 0 ? <AdminPanel><Text style={styles.empty}>No upcoming classes are scheduled.</Text></AdminPanel> : data?.classes.map((item: any) => <AdminPanel key={item.id} style={styles.rowPanel}><View style={styles.iconTile}><Ionicons name="fitness-outline" size={20} color={C.blue} /></View><View style={styles.rowContent}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.rowSub}>{item.category} · {item.trainer_name}</Text><Text style={styles.rowSub}>{formatAdminTime(item.starts_at)} · {item.duration_minutes} min · capacity {item.capacity}</Text></View></AdminPanel>)}
 
-          <AdminSectionTitle>Recent Bookings</AdminSectionTitle>
+          <AdminSectionTitle action={<TouchableOpacity onPress={() => router.push("/admin/bookings" as never)}><Text style={styles.manageBookings}>Manage all</Text></TouchableOpacity>}>Recent Bookings</AdminSectionTitle>
           {(data?.bookings.length ?? 0) === 0 ? <AdminPanel><Text style={styles.empty}>No class bookings yet.</Text></AdminPanel> : data?.bookings.map((booking: any) => <AdminPanel key={booking.id} style={styles.bookingPanel}><View style={styles.bookingMain}><Text style={styles.rowTitle}>{booking.profiles?.full_name || "Member"}</Text><Text style={styles.rowSub}>{booking.gym_classes?.name || "Class"} · {formatAdminTime(booking.created_at)}</Text></View><Text style={[styles.status, booking.status === "approved" ? styles.approved : booking.status === "pending" ? styles.pending : styles.other]}>{String(booking.status).toUpperCase()}</Text></AdminPanel>)}
 
           <AdminPanel style={styles.note}><Text style={styles.rowSub}>Pull down to refresh live totals. Revenue counts paid transactions recorded in Supabase.</Text></AdminPanel>
@@ -74,7 +78,7 @@ function Action({ icon, label, onPress }: { icon: keyof typeof Ionicons.glyphMap
   return <TouchableOpacity style={styles.actionCard} onPress={onPress} activeOpacity={0.78}><View style={styles.actionIcon}><Ionicons name={icon} size={20} color={C.blue} /></View><Text style={styles.actionLabel}>{label}</Text><Ionicons name="chevron-forward" size={15} color={C.dim} /></TouchableOpacity>;
 }
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   container: { flex: 1, backgroundColor: C.background },
   content: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 105 },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 18 },
@@ -103,6 +107,7 @@ const styles = StyleSheet.create({
   rowSub: { color: C.muted, fontSize: 9, lineHeight: 14, marginTop: 3 },
   bookingPanel: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
   bookingMain: { flex: 1 },
+  manageBookings: { color: C.blue, fontSize: 9, fontWeight: "700" },
   status: { fontSize: 7, fontWeight: "800", borderRadius: 12, overflow: "hidden", paddingHorizontal: 7, paddingVertical: 5 },
   approved: { color: C.green, backgroundColor: "#123D2A" },
   pending: { color: "#F4C95D", backgroundColor: "#40351D" },

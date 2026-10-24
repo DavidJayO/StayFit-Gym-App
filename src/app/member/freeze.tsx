@@ -1,3 +1,4 @@
+import { createThemeStyles, useThemeMode } from "../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
@@ -17,6 +18,7 @@ const BLUE = "#1769FF";
 const durations = [7, 14, 30];
 
 export default function FreezeScreen() {
+  useThemeMode();
   const [duration, setDuration] = useState(7);
   const [reason, setReason] = useState("");
   const [planName, setPlanName] = useState("No membership found");
@@ -175,7 +177,7 @@ export default function FreezeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   container: { flex: 1, backgroundColor: "#06111C" },
   content: { padding: 20, paddingTop: 48, paddingBottom: 30 },
   backButton: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 22 },

@@ -1,3 +1,4 @@
+import { createThemeStyles, useThemeMode } from "../../lib/theme";
 
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -16,6 +17,7 @@ import { currentUserId, formatTime, getErrorMessage } from "../../lib/member-dat
 type Booking = { id: string; name: string; trainer: string; date: string; time: string; category: string; icon: "barbell-outline" | "flash-outline" | "leaf-outline"; status: "Upcoming" | "Completed"; dbStatus: string };
 
 export default function Bookings() {
+  useThemeMode();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [selectedTab, setSelectedTab] = useState("Upcoming");
   const [error, setError] = useState("");
@@ -298,7 +300,7 @@ function NavItem({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   container: { flex: 1, backgroundColor: "#06111C" },
   header: {
     height: 54, flexDirection: "row", alignItems: "center",

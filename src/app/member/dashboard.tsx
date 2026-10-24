@@ -1,6 +1,7 @@
+import { createThemeStyles, useThemeMode } from "../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
-import { useEffect, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
 import {
   SafeAreaView,
   ScrollView,
@@ -13,12 +14,14 @@ import { supabase } from "../../lib/supabase";
 import { currentUserId, formatDate, loadMembership, loadProfile, Membership, getErrorMessage } from "../../lib/member-data";
 
 export default function Dashboard() {
+  useThemeMode();
   const [name, setName] = useState("Member");
   const [membership, setMembership] = useState<Membership | null>(null);
   const [nextClass, setNextClass] = useState<any>(null);
+  const [visitCount, setVisitCount] = useState(0);
   const [unread, setUnread] = useState(false);
   const [error, setError] = useState("");
-  useEffect(() => { void (async () => {
+  useFocusEffect(useCallback(() => { void (async () => {
     try {
       const [profile, plan, userId] = await Promise.all([loadProfile(), loadMembership(), currentUserId()]);
       setName(profile.full_name?.split(" ")[0] || profile.email || "Member"); setMembership(plan);
@@ -26,10 +29,13 @@ export default function Dashboard() {
       if (bookingError) throw bookingError;
       const upcoming = ((data ?? []) as any[]).filter((row) => row.gym_classes && new Date(row.gym_classes.starts_at) > new Date()).sort((a, b) => new Date(a.gym_classes.starts_at).getTime() - new Date(b.gym_classes.starts_at).getTime());
       setNextClass(upcoming[0]?.gym_classes ?? null);
-      const { count, error: notificationError } = await supabase.from("member_notifications").select("id", { count: "exact", head: true }).eq("user_id", userId).is("read_at", null);
-      if (!notificationError) setUnread((count ?? 0) > 0);
+      const { count: attendanceCount, error: attendanceError } = await supabase.from("attendance").select("id", { count: "exact", head: true }).eq("user_id", userId);
+      if (attendanceError) throw attendanceError;
+      setVisitCount(attendanceCount ?? 0);
+      const { count: notificationCount, error: notificationError } = await supabase.from("member_notifications").select("id", { count: "exact", head: true }).eq("user_id", userId).is("read_at", null);
+      if (!notificationError) setUnread((notificationCount ?? 0) > 0);
     } catch (e) { setError(getErrorMessage(e)); }
-  })(); }, []);
+  })(); }, []));
   const active = !!membership && membership.status === "active" && new Date(`${membership.ends_on}T23:59:59`) >= new Date();
   return (
     <SafeAreaView style={styles.container}>
@@ -150,7 +156,7 @@ export default function Dashboard() {
 
           <ActionCard
             icon="time-outline"
-            title="Attendance"
+            title={`Attendance · ${visitCount} visits`}
             onPress={() => router.push("/member/attendance")}
           />
         </View>
@@ -318,7 +324,7 @@ function NavItem({
 
 /* STYLES */
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   container: {
     flex: 1,
     backgroundColor: "#06111C",

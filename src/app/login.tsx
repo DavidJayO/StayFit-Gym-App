@@ -1,3 +1,4 @@
+import { createThemeStyles, useThemeMode } from "../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
@@ -18,6 +19,7 @@ import { isSupabaseConfigured } from "../lib/supabase";
 import { signIn, type AppRole } from "../lib/auth";
 
 export default function Login() {
+  useThemeMode();
   const { signup } = useLocalSearchParams<{ signup?: string }>();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -317,7 +319,7 @@ export default function Login() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   container: {
     flex: 1,
     backgroundColor: "#06111C",

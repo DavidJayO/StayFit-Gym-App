@@ -1,3 +1,4 @@
+import { createThemeStyles, useThemeMode } from "../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useState } from "react";
@@ -18,6 +19,7 @@ import { isSupabaseConfigured } from "../lib/supabase";
 import { signUp } from "../lib/auth";
 
 export default function Register() {
+  useThemeMode();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -356,7 +358,7 @@ export default function Register() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   container: {
     flex: 1,
     backgroundColor: "#06111C",

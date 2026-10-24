@@ -1,3 +1,4 @@
+import { createThemeStyles, useThemeMode } from "../../lib/theme";
 
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -13,6 +14,7 @@ import {
 import { loadMembership, loadProfile, Membership, getErrorMessage, formatDate } from "../../lib/member-data";
 
 export default function Access() {
+  useThemeMode();
   const [membership, setMembership] = useState<Membership | null>(null);
   const [name, setName] = useState("");
   const [memberId, setMemberId] = useState("");
@@ -211,7 +213,7 @@ function NavItem({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   container: { flex: 1, backgroundColor: "#06111C" },
   header: {
     height: 54, flexDirection: "row", alignItems: "center",

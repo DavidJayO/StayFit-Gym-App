@@ -1,3 +1,4 @@
+import { createThemeStyles, useThemeMode } from "../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
@@ -8,6 +9,7 @@ import { currentUserId, getErrorMessage } from "../../lib/member-data";
 type Notice = { id: string; title: string; body: string; created_at: string; read_at: string | null };
 
 export default function NotificationsScreen() {
+  useThemeMode();
   const [items, setItems] = useState<Notice[]>([]);
   const [error, setError] = useState("");
   const load = useCallback(async () => {
@@ -42,7 +44,7 @@ export default function NotificationsScreen() {
   </SafeAreaView>;
 }
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   container: { flex: 1, backgroundColor: "#06111C" },
   header: { padding: 20, paddingTop: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderColor: "#1C3040" },
   title: { color: "#fff", fontSize: 18, fontWeight: "800" },

@@ -1,3 +1,4 @@
+import { createThemeStyles, useThemeMode } from "../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
@@ -32,6 +33,7 @@ async function getCheckoutError(error: unknown) {
 }
 
 export default function PlanPayment() {
+  useThemeMode();
   const { id } = useLocalSearchParams<{ id?: string }>();
   const [request, setRequest] = useState<PlanRequest | null>(null);
   const [paypalStatus, setPaypalStatus] = useState("");
@@ -120,7 +122,7 @@ export default function PlanPayment() {
 
 const COLORS = { background: "#06111C", panel: "#102131", panelDeep: "#0B1A28", border: "#1C3040", borderBright: "#1D3A55", blue: "#4D8DFF", blueStrong: "#1769FF", text: "#FFFFFF", muted: "#98A2B3", dim: "#667085", green: "#54D98C", red: "#FF8585" };
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   container: { flex: 1, backgroundColor: COLORS.background },
   header: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16 },
   backButton: { width: 34, height: 34, justifyContent: "center" },

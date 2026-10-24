@@ -1,3 +1,4 @@
+import { createThemeStyles, useThemeMode } from "../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
@@ -5,8 +6,10 @@ import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { AdminLoading, AdminMessage, AdminPanel, AdminScreen, AdminColors as C } from "../../components/admin-ui";
 import { errorMessage, requireAdmin } from "../../lib/admin-data";
 import { supabase } from "../../lib/supabase";
+import { ThemeSelector } from "../../components/theme-selector";
 
 export default function AdminSettings() {
+  useThemeMode();
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -24,14 +27,17 @@ export default function AdminSettings() {
   return <AdminScreen title="More">
     {loading ? <AdminLoading /> : error ? <AdminMessage>{error}</AdminMessage> : <>
       <AdminPanel style={styles.profileCard}><View style={styles.avatar}><Ionicons name="shield-checkmark" size={23} color={C.blue} /></View><Text style={styles.name}>Administrator</Text><Text style={styles.email}>{email}</Text><Text style={styles.note}>Admin access is controlled by your role in the StayFit Supabase profile.</Text></AdminPanel>
+      <AdminPanel style={styles.appearanceCard}><ThemeSelector /></AdminPanel>
+      <TouchableOpacity style={styles.link} onPress={() => router.push("/admin/bookings" as never)}><View style={styles.linkIcon}><Ionicons name="clipboard-outline" size={19} color={C.blue} /></View><View style={{ flex: 1 }}><Text style={styles.linkTitle}>Class Bookings</Text><Text style={styles.linkSub}>Approve, reject, or cancel member bookings</Text></View><Ionicons name="chevron-forward" size={17} color={C.dim} /></TouchableOpacity>
       <TouchableOpacity style={styles.link} onPress={() => router.push("/admin/requests" as never)}><View style={styles.linkIcon}><Ionicons name="file-tray-full-outline" size={19} color={C.blue} /></View><View style={{ flex: 1 }}><Text style={styles.linkTitle}>Member Requests</Text><Text style={styles.linkSub}>Review freezes, renewals, and daily passes</Text></View><Ionicons name="chevron-forward" size={17} color={C.dim} /></TouchableOpacity>
       <TouchableOpacity style={styles.logout} onPress={() => void logout()}><Ionicons name="log-out-outline" size={17} color={C.red} /><Text style={styles.logoutText}>Log out</Text></TouchableOpacity>
     </>}
   </AdminScreen>;
 }
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   profileCard: { alignItems: "center", paddingVertical: 24, marginBottom: 14 },
+  appearanceCard: { paddingHorizontal: 14 },
   avatar: { width: 58, height: 58, borderRadius: 20, backgroundColor: C.panelDeep, borderWidth: 1, borderColor: C.borderBright, alignItems: "center", justifyContent: "center", marginBottom: 11 },
   name: { color: C.text, fontSize: 15, fontWeight: "800" },
   email: { color: C.muted, fontSize: 10, marginTop: 5 },

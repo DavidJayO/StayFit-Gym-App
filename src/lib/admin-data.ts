@@ -126,6 +126,17 @@ export async function setAdminBookingStatus(id: string, status: "approved" | "re
   if (error) throw error;
 }
 
+export async function loadAdminBookings() {
+  await requireAdmin();
+  const { data, error } = await supabase
+    .from("class_bookings")
+    .select("id,status,created_at,profiles(full_name,email),gym_classes(name,category,trainer_name,starts_at,duration_minutes,capacity)")
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function loadAdminClasses() {
   await requireAdmin();
   const { data, error } = await supabase.from("gym_classes").select("id,name,category,trainer_name,starts_at,duration_minutes,capacity,is_active").order("starts_at", { ascending: true }).limit(100);
@@ -147,7 +158,7 @@ export async function setGymClassActive(id: string, isActive: boolean) {
 
 export async function loadAdminPayments() {
   await requireAdmin();
-  const { data, error } = await supabase.from("payments").select("id,description,amount,payment_method,status,paid_at,created_at,membership_plan_request_id,profiles(full_name)").order("created_at", { ascending: false }).limit(100);
+  const { data, error } = await supabase.from("payments").select("id,description,amount,payment_method,status,paid_at,created_at,membership_plan_request_id,daily_pass_request_id,profiles(full_name)").order("created_at", { ascending: false }).limit(100);
   if (error) throw error;
   return data ?? [];
 }
@@ -159,7 +170,7 @@ export async function loadAdminRequests() {
   await requireAdmin();
   const [freezes, passes, renewals, plans] = await Promise.all([
     supabase.from("freeze_requests").select("id,user_id,duration_days,reason,status,created_at,profiles!freeze_requests_user_id_fkey(full_name)").order("created_at", { ascending: false }).limit(100),
-    supabase.from("daily_pass_requests").select("id,user_id,visit_on,amount,payment_method,status,created_at,profiles(full_name)").order("created_at", { ascending: false }).limit(100),
+    supabase.from("daily_pass_requests").select("id,user_id,visit_on,amount,payment_method,status,payment_status,checked_in_at,paypal_invoice_id,paypal_invoice_url,created_at,profiles(full_name)").order("created_at", { ascending: false }).limit(100),
     supabase.from("membership_renewal_requests").select("id,user_id,membership_id,status,created_at,profiles(full_name)").order("created_at", { ascending: false }).limit(100),
     supabase.from("membership_plan_requests").select("id,user_id,plan_name,amount,billing_period,status,payment_status,payment_method,payment_reference,payment_submitted_at,paypal_invoice_id,paypal_invoice_url,created_at,profiles!membership_plan_requests_user_id_fkey(full_name)").order("created_at", { ascending: false }).limit(100),
   ]);
@@ -177,6 +188,11 @@ export async function reviewAdminRequest(kind: AdminRequestKind, id: string, sta
   await requireAdmin();
   if (kind === "plan") {
     const { error } = await supabase.rpc("admin_review_plan_request", { p_request_id: id, p_status: status });
+    if (error) throw error;
+    return;
+  }
+  if (kind === "daily_pass") {
+    const { error } = await supabase.rpc("admin_review_daily_pass_request", { p_request_id: id, p_status: status });
     if (error) throw error;
     return;
   }

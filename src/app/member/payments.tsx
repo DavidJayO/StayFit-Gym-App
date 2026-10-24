@@ -1,3 +1,4 @@
+import { createThemeStyles, useThemeMode } from "../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
@@ -14,7 +15,8 @@ import { currentUserId, getErrorMessage } from "../../lib/member-data";
 const BLUE = "#1769FF";
 
 export default function PaymentsScreen() {
-  const [method, setMethod] = useState("GCash");
+  useThemeMode();
+  const [method, setMethod] = useState("PayPal");
   const [payments, setPayments] = useState<any[]>([]);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -39,7 +41,7 @@ export default function PaymentsScreen() {
       const userId = await currentUserId();
       const { error } = await supabase.from("member_preferences").upsert({ user_id: userId, payment_method: method, updated_at: new Date().toISOString() });
       if (error) throw error;
-      setNotice(`Preferred payment method saved: ${method}. The app does not yet process payments online.`);
+      setNotice(`Preferred payment method saved: ${method}. To pay, continue through checkout on the membership or daily pass page.`);
     } catch (e) { setError(getErrorMessage(e)); }
   };
 
@@ -68,7 +70,7 @@ export default function PaymentsScreen() {
 
         <View style={styles.methodRow}>
           {[
-            { name: "GCash", icon: "phone-portrait-outline" },
+            { name: "PayPal", icon: "logo-paypal" },
             { name: "Cash", icon: "cash-outline" },
           ].map((item) => (
             <TouchableOpacity
@@ -215,7 +217,7 @@ export default function PaymentsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   container: { flex: 1, backgroundColor: "#06111C" },
   content: { padding: 20, paddingTop: 50, paddingBottom: 30 },
   header: { color: "#FFFFFF", fontSize: 25, fontWeight: "700" },

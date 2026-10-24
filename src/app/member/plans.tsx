@@ -1,3 +1,4 @@
+import { createThemeStyles, useThemeMode } from "../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useMemo, useState } from "react";
@@ -41,6 +42,7 @@ const categories: { key: PlanCategory; label: string }[] = [
 ];
 
 export default function MembershipPlans() {
+  useThemeMode();
   const params = useLocalSearchParams<{ category?: string }>();
   const [category, setCategory] = useState<PlanCategory>(params.category === "daily" ? "daily" : "all");
   const [busyPlan, setBusyPlan] = useState("");
@@ -126,7 +128,7 @@ export default function MembershipPlans() {
 
 const COLORS = { background: "#06111C", panel: "#102131", border: "#1C3040", borderBright: "#1D3A55", blue: "#1769FF", text: "#FFFFFF", muted: "#98A2B3", green: "#54D98C", red: "#FF8585" };
 
-const styles = StyleSheet.create({
+const styles = createThemeStyles({
   container: { flex: 1, backgroundColor: COLORS.background },
   header: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16 },
   backButton: { width: 34, height: 34, justifyContent: "center" },
