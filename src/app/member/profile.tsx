@@ -1,4 +1,4 @@
-import { createThemeStyles, useThemeMode } from "../../lib/theme";
+import { createThemeStyles, getThemePalette, useThemeMode } from "../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
@@ -15,7 +15,8 @@ import { loadMembership, loadProfile, getErrorMessage } from "../../lib/member-d
 import { ThemeSelector } from "../../components/theme-selector";
 
 export default function Profile() {
-  useThemeMode();
+  const themeMode = useThemeMode();
+  const colors = getThemePalette(themeMode);
   const [name, setName] = useState("Member");
   const [email, setEmail] = useState("");
   const [membershipLabel, setMembershipLabel] = useState("No active membership");
@@ -60,7 +61,7 @@ export default function Profile() {
             <Ionicons
               name="ellipsis-vertical"
               size={20}
-              color="#FFFFFF"
+              color={colors.text}
             />
           </TouchableOpacity>
         </View>
@@ -172,6 +173,8 @@ function ProfileItem({
   icon: keyof typeof Ionicons.glyphMap;
   onPress: () => void;
 }) {
+  const colors = getThemePalette(useThemeMode());
+
   return (
     <TouchableOpacity
       style={styles.menuItem}
@@ -182,10 +185,10 @@ function ProfileItem({
         <Ionicons
           name={icon}
           size={17}
-          color="#FFFFFF"
+          color={colors.text}
         />
 
-        <Text style={styles.menuText}>
+        <Text style={[styles.menuText, { color: colors.text }]}>
           {title}
         </Text>
       </View>
@@ -193,7 +196,7 @@ function ProfileItem({
       <Ionicons
         name="chevron-forward"
         size={15}
-        color="#98A2B3"
+        color={colors.muted}
       />
     </TouchableOpacity>
   );

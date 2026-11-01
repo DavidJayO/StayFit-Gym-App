@@ -98,7 +98,7 @@ function lightStyle(style: Record<string, unknown>, styleName: string) {
       output[property] = borders[value] ?? original;
     } else if (property === "color" || property === "tintColor") {
       if (value === "#FFFFFF") {
-        output[property] = /(button|purchase|submit|price|selectedText|avatarText)/i.test(styleName) ? "#FFFFFF" : ThemePalette.light.text;
+        output[property] = /(button|purchase|submit|selectedText|avatarText)/i.test(styleName) ? "#FFFFFF" : ThemePalette.light.text;
       } else {
         const colors: Record<string, string> = {
           "#98A2B3": ThemePalette.light.muted,

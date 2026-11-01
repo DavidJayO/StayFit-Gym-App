@@ -16,7 +16,7 @@ import {
   View,
 } from "react-native";
 import { isSupabaseConfigured } from "../lib/supabase";
-import { signIn, type AppRole } from "../lib/auth";
+import { requestLoginEmailCode, signInAdminWithPassword, verifyLoginEmailCode, type AppRole } from "../lib/auth";
 
 export default function Login() {
   useThemeMode();
@@ -27,14 +27,18 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loginError, setLoginError] = useState("");
+  const [loginMessage, setLoginMessage] = useState("");
+  const [verificationPending, setVerificationPending] = useState(false);
+  const [verificationCode, setVerificationCode] = useState("");
 
   const handleLogin = async () => {
-    // Check empty fields
     if (!email.trim() || !password) {
-      Alert.alert(
-        "Login Required",
-        "Please enter your email and password."
-      );
+      setLoginError("Enter your email and password to continue.");
+      return;
+    }
+
+    if (verificationPending && !/^\d{6}$/.test(verificationCode.trim())) {
+      setLoginError("Enter the six-digit code from your email.");
       return;
     }
 
@@ -45,21 +49,47 @@ export default function Login() {
 
     setIsSubmitting(true);
     setLoginError("");
+    setLoginMessage("");
     try {
-      const role = await signIn(email, password);
-      if (role !== selectedRole) {
-        const { supabase } = await import("../lib/supabase");
-        await supabase.auth.signOut();
-        setLoginError(
-          role === "admin"
-            ? "This account is an administrator account. Choose Admin to continue."
-            : "This account is a member account. Choose Member to continue."
-        );
+      if (selectedRole === "admin") {
+        await signInAdminWithPassword(email, password);
+        router.replace("/admin/dashboard");
         return;
       }
-      router.replace(role === "admin" ? "/admin/dashboard" : "/member/dashboard");
+
+      if (!verificationPending) {
+        await requestLoginEmailCode(email, password);
+        setVerificationPending(true);
+        setLoginMessage(`A six-digit sign-in code was sent to ${email.trim()}. It expires in 10 minutes.`);
+        return;
+      }
+
+      const role = await verifyLoginEmailCode(email, password, verificationCode);
+      if (role !== "member") {
+        const { supabase } = await import("../lib/supabase");
+        await supabase.auth.signOut();
+        setLoginError("Admin accounts sign in with their password only. Choose Admin to continue.");
+        return;
+      }
+      router.replace("/member/dashboard");
     } catch (error) {
       setLoginError(error instanceof Error ? error.message : "Check your email and password, then try again.");
+      setLoginMessage("");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleResendCode = async () => {
+    if (!email.trim() || !password) return;
+    setIsSubmitting(true);
+    setLoginError("");
+    setLoginMessage("");
+    try {
+      await requestLoginEmailCode(email, password);
+      setLoginMessage(`A new sign-in code was sent to ${email.trim()}. It expires in 10 minutes.`);
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : "Could not resend the code. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -138,6 +168,7 @@ export default function Login() {
                   : "Login to continue to StayFit"}
             </Text>
             {loginError ? <Text style={styles.errorText}>{loginError}</Text> : null}
+            {loginMessage ? <Text style={styles.verificationMessage}>{loginMessage}</Text> : null}
           </View>
 
           <View style={styles.roleSelector} accessibilityRole="radiogroup">
@@ -149,9 +180,11 @@ export default function Login() {
                   accessibilityRole="radio"
                   accessibilityState={{ selected }}
                   style={[styles.roleOption, selected && styles.roleOptionSelected]}
+                  disabled={verificationPending}
                   onPress={() => {
                     setSelectedRole(role);
                     setLoginError("");
+                    setLoginMessage("");
                   }}
                   activeOpacity={0.8}
                 >
@@ -172,6 +205,40 @@ export default function Login() {
 
           <View style={styles.loginCard}>
 
+            {verificationPending ? (
+              <>
+                <Text style={styles.label}>Email verification code</Text>
+                <Text style={styles.verificationHelp}>Enter the six-digit code sent to {email.trim()}.</Text>
+                <View style={styles.inputContainer}>
+                  <Ionicons name="keypad-outline" size={17} color="#667085" />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="6-digit code"
+                    placeholderTextColor="#667085"
+                    keyboardType="number-pad"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    maxLength={6}
+                    value={verificationCode}
+                    onChangeText={(value) => setVerificationCode(value.replace(/\D/g, ""))}
+                  />
+                </View>
+                <View style={styles.verificationLinks}>
+                  <TouchableOpacity onPress={() => void handleResendCode()} disabled={isSubmitting}>
+                    <Text style={styles.forgotText}>{isSubmitting ? "Sending…" : "Resend code"}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => {
+                    setVerificationPending(false);
+                    setVerificationCode("");
+                    setLoginError("");
+                    setLoginMessage("");
+                  }}>
+                    <Text style={styles.forgotText}>Change login details</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <>
             {/* EMAIL */}
 
             <Text style={styles.label}>
@@ -247,6 +314,8 @@ export default function Login() {
                 Forgot Password?
               </Text>
             </TouchableOpacity>
+              </>
+            )}
 
             {/* LOGIN BUTTON */}
 
@@ -257,7 +326,9 @@ export default function Login() {
               activeOpacity={0.8}
             >
               <Text style={styles.buttonText}>
-                {isSubmitting ? "SIGNING IN..." : "LOG IN"}
+                {isSubmitting
+                  ? verificationPending ? "VERIFYING..." : "SENDING CODE..."
+                  : verificationPending ? "VERIFY AND LOG IN" : "SEND VERIFICATION CODE"}
               </Text>
 
               <Ionicons
@@ -271,7 +342,7 @@ export default function Login() {
 
           {/* REGISTER */}
 
-          {selectedRole === "member" ? (
+          {!verificationPending && selectedRole === "member" ? (
             <View style={styles.registerRow}>
               <Text style={styles.registerText}>Don't have an account?</Text>
               <TouchableOpacity
@@ -281,11 +352,11 @@ export default function Login() {
                 <Text style={styles.registerLink}> Create Account</Text>
               </TouchableOpacity>
             </View>
-          ) : (
+          ) : !verificationPending ? (
             <Text style={styles.adminNote}>
               Admin accounts are created by the gym administrator. Sign in with your assigned email and password.
             </Text>
-          )}
+          ) : null}
 
           {/* BACKEND SETUP */}
 
@@ -304,7 +375,9 @@ export default function Login() {
             </View>
 
             <Text style={styles.demoText}>
-              Sign in with the email and password you registered with.
+              {verificationPending
+                ? "Your password is checked first. Enter the email code to finish signing in."
+                : "Sign in with your email and password. A verification code is required before access."}
             </Text>
 
           </View>
@@ -422,6 +495,15 @@ const styles = createThemeStyles({
     paddingHorizontal: 12,
   },
 
+  verificationMessage: {
+    color: "#4D8DFF",
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: "center",
+    marginTop: 10,
+    paddingHorizontal: 12,
+  },
+
   /* LOGIN CARD */
 
   loginCard: {
@@ -437,6 +519,20 @@ const styles = createThemeStyles({
     fontSize: 10,
     fontWeight: "700",
     marginBottom: 7,
+  },
+
+  verificationHelp: {
+    color: "#98A2B3",
+    fontSize: 10,
+    lineHeight: 15,
+    marginBottom: 12,
+  },
+
+  verificationLinks: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: -5,
+    marginBottom: 14,
   },
 
   inputContainer: {
