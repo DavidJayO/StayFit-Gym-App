@@ -2,9 +2,9 @@ import { createThemeStyles, useThemeMode } from "../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { AdminButton, AdminLoading, AdminMessage, AdminPanel, AdminScreen, AdminSectionTitle, AdminColors as C } from "../../components/admin-ui";
-import { AdminRequestKind, errorMessage, formatAdminDate, loadAdminRequests, reviewAdminRequest } from "../../lib/admin-data";
+import { AdminRequestKind, errorMessage, formatAdminDate, loadAdminRequests, recordMembershipRefund, reviewAdminRequest } from "../../lib/admin-data";
 import { supabase } from "../../lib/supabase";
 
 export default function AdminRequests() {
@@ -13,6 +13,7 @@ export default function AdminRequests() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
+  const [refundReferences, setRefundReferences] = useState<Record<string, string>>({});
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try { setRows(await loadAdminRequests()); } catch (e) { setError(errorMessage(e)); }
@@ -48,6 +49,16 @@ export default function AdminRequests() {
     finally { setBusyId(""); }
   }
 
+  async function recordRefund(row: any) {
+    setBusyId(row.id); setError("");
+    try {
+      await recordMembershipRefund(row.id, refundReferences[row.id] ?? "");
+      setRefundReferences((current) => ({ ...current, [row.id]: "" }));
+      await load();
+    } catch (e) { setError(errorMessage(e)); }
+    finally { setBusyId(""); }
+  }
+
   const pending = rows.filter((row) => row.status === "pending");
   return <AdminScreen title="Member Requests">
     <AdminMessage tone="info">Review requests here. For PayPal daily passes, verify the invoice here; cash passes can be approved here and marked paid under Payments. The entry QR is issued only after approval and payment verification. Scan the code at the gym to check the member in.</AdminMessage>
@@ -55,7 +66,7 @@ export default function AdminRequests() {
     {error ? <AdminMessage>{error}</AdminMessage> : null}
     <AdminSectionTitle>{loading ? "Loading requests" : `${pending.length} pending · ${rows.length} total`}</AdminSectionTitle>
     {loading && rows.length === 0 ? <AdminLoading /> : rows.length === 0 ? <AdminPanel><Text style={styles.muted}>No member requests have been submitted.</Text></AdminPanel> : rows.map((row) => <AdminPanel key={`${row.kind}-${row.id}`} style={styles.card}>
-      <View style={styles.top}><View style={styles.icon}><Ionicons name={row.kind === "freeze" ? "snow-outline" : row.kind === "daily_pass" ? "ticket-outline" : row.kind === "plan" ? "card-outline" : "refresh-outline"} size={18} color={C.blue} /></View><View style={{ flex: 1 }}><Text style={styles.title}>{row.kind === "freeze" ? "Membership freeze" : row.kind === "daily_pass" ? "Daily pass" : row.kind === "plan" ? "New plan application" : "Renewal"}</Text><Text style={styles.muted}>{row.profiles?.full_name || "Member"} · {formatAdminDate(row.created_at)}</Text></View><Text style={[styles.badge, row.status === "pending" ? styles.pending : row.status === "approved" ? styles.approved : styles.rejected]}>{String(row.status).toUpperCase()}</Text></View>
+      <View style={styles.top}><View style={styles.icon}><Ionicons name={row.kind === "freeze" ? "snow-outline" : row.kind === "unfreeze" ? "sunny-outline" : row.kind === "daily_pass" ? "ticket-outline" : row.kind === "plan" ? "card-outline" : row.kind === "cancellation" ? "close-circle-outline" : "refresh-outline"} size={18} color={C.blue} /></View><View style={{ flex: 1 }}><Text style={styles.title}>{row.kind === "freeze" ? "Membership freeze" : row.kind === "unfreeze" ? "Membership unfreeze" : row.kind === "daily_pass" ? "Daily pass" : row.kind === "plan" ? "New plan application" : row.kind === "cancellation" ? "Membership cancellation / refund" : "Renewal"}</Text><Text style={styles.muted}>{row.profiles?.full_name || "Member"} · {formatAdminDate(row.created_at)}</Text></View><Text style={[styles.badge, row.status === "pending" ? styles.pending : row.status === "approved" ? styles.approved : styles.rejected]}>{String(row.status).toUpperCase()}</Text></View>
       <Text style={styles.detail}>{row.detail}</Text>
       {row.kind === "plan" ? <View style={styles.paymentBox}>
         <Text style={styles.paymentTitle}>PAYMENT · {String(row.payment_status || "not_submitted").replaceAll("_", " ").toUpperCase()}</Text>
@@ -69,8 +80,17 @@ export default function AdminRequests() {
         {row.paypal_invoice_id ? <Text style={styles.paymentDetail}>PayPal invoice: {row.paypal_invoice_id}</Text> : null}
         <Text style={styles.paymentDetail}>{row.checked_in_at ? `Checked in ${formatAdminDate(row.checked_in_at)}` : row.status === "approved" && row.payment_status === "paid" ? "Entry QR is ready for the member on the visit date." : row.payment_method === "PayPal" ? row.paypal_invoice_id ? "Verify the invoice after PayPal reports it paid." : "Waiting for the member to start PayPal checkout." : "Approve the request, then mark cash paid under Payments to issue the entry QR."}</Text>
       </View> : null}
+      {row.kind === "cancellation" ? <View style={styles.paymentBox}>
+        <Text style={styles.paymentTitle}>REFUND · {String(row.refund_status || "not_requested").replaceAll("_", " ").toUpperCase()}</Text>
+        <Text style={styles.paymentDetail}>{row.payment ? `${row.payment.description} · ₱${Number(row.payment.amount).toLocaleString("en-PH", { minimumFractionDigits: 2 })} · ${row.payment.payment_method} · ${String(row.payment.status).toUpperCase()}` : "No paid membership transaction was linked; this is a cancellation-only request."}</Text>
+        {row.refund_status === "issued" ? <Text style={styles.paymentDetail}>Refund reference: {row.refund_reference}</Text> : row.refund_status === "requested" && row.status === "approved" ? <Text style={styles.verifyHint}>Issue the refund in PayPal first, then enter its PayPal refund or transaction reference below.</Text> : row.refund_status === "requested" && row.status === "pending" ? <Text style={styles.verifyHint}>If approved, refund this payment manually in PayPal before recording it here.</Text> : null}
+      </View> : null}
       <TouchableOpacity style={styles.manageMember} onPress={() => router.push(`/admin/member/${row.user_id}` as never)}><Text style={styles.manageText}>Open member record</Text><Ionicons name="chevron-forward" size={14} color={C.blue} /></TouchableOpacity>
       {row.status === "pending" ? <View style={styles.actions}><TouchableOpacity disabled={busyId === row.id} style={[styles.button, styles.rejectButton]} onPress={() => void review(row, "rejected")}><Text style={styles.rejectText}>Reject</Text></TouchableOpacity>{(row.kind === "plan" && !row.paypal_invoice_id) || (row.kind === "daily_pass" && row.payment_method === "PayPal" && !row.paypal_invoice_id) ? <View style={[styles.button, styles.waitButton]}><Text style={styles.waitText}>Awaiting PayPal</Text></View> : <TouchableOpacity disabled={busyId === row.id} style={[styles.button, styles.approveButton]} onPress={() => void review(row, "approved")}><Text style={styles.approveText}>{busyId === row.id ? "Verifying PayPal…" : row.kind === "plan" ? "Verify PayPal & activate" : row.kind === "daily_pass" && row.payment_method === "PayPal" ? "Verify PayPal & approve" : "Approve"}</Text></TouchableOpacity>}</View> : null}
+      {row.kind === "cancellation" && row.status === "approved" && row.refund_status === "requested" ? <View style={styles.refundRecord}>
+        <TextInput style={styles.refundInput} value={refundReferences[row.id] ?? ""} onChangeText={(value) => setRefundReferences((current) => ({ ...current, [row.id]: value }))} placeholder="PayPal refund/reference ID" placeholderTextColor={C.dim} autoCapitalize="none" />
+        <TouchableOpacity disabled={busyId === row.id} style={[styles.button, styles.approveButton]} onPress={() => void recordRefund(row)}><Text style={styles.approveText}>{busyId === row.id ? "Recording…" : "Record refund issued"}</Text></TouchableOpacity>
+      </View> : null}
     </AdminPanel>)}
   </AdminScreen>;
 }
@@ -100,4 +120,6 @@ const styles = createThemeStyles({
   approveText: { color: C.text, fontSize: 9, fontWeight: "800" },
   waitButton: { backgroundColor: C.panelDeep, borderWidth: 1, borderColor: C.border, minWidth: 122 },
   waitText: { color: C.muted, fontSize: 9, fontWeight: "800" },
+  refundRecord: { gap: 8, marginTop: 12 },
+  refundInput: { minHeight: 40, borderRadius: 8, borderWidth: 1, borderColor: C.borderBright, backgroundColor: C.panelDeep, color: C.text, paddingHorizontal: 11, fontSize: 11 },
 });

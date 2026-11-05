@@ -70,13 +70,26 @@ export default function MembershipScreen() {
             <Text style={styles.buttonText}>Renew Membership</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
+          {membership?.status === "frozen" ? <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => router.push("/member/unfreeze")}
+          >
+            <Ionicons name="sunny-outline" size={20} color="#FFFFFF" />
+            <Text style={styles.buttonText}>Request Membership Unfreeze</Text>
+          </TouchableOpacity> : membership?.status === "active" ? <TouchableOpacity
             style={styles.secondaryButton}
             onPress={() => router.push("/member/freeze")}
           >
             <Ionicons name="snow-outline" size={20} color="#FFFFFF" />
             <Text style={styles.buttonText}>Request Membership Freeze</Text>
-          </TouchableOpacity>
+          </TouchableOpacity> : null}
+          {membership?.status === "active" || membership?.status === "frozen" ? <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => router.push("/member/cancellation")}
+          >
+            <Ionicons name="close-circle-outline" size={20} color="#FFFFFF" />
+            <Text style={styles.buttonText}>Request Cancellation / Refund</Text>
+          </TouchableOpacity> : null}
         </> : <>
           <TouchableOpacity style={styles.primaryButton} onPress={() => router.push("/member/plans")}>
             <Ionicons name="card-outline" size={20} color="#FFFFFF" />

@@ -4,22 +4,29 @@ import React, { useCallback, useEffect, useState } from "react";
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { AdminButton, AdminLoading, AdminMessage, AdminPanel, AdminScreen, AdminSectionTitle, AdminColors as C } from "../../components/admin-ui";
-import { createGymClass, errorMessage, formatAdminTime, loadAdminClasses, setGymClassActive } from "../../lib/admin-data";
+import { createGymClass, errorMessage, formatAdminTime, loadAdminBookings, loadAdminClasses, setAdminBookingStatus, setGymClassActive } from "../../lib/admin-data";
 
 const initialForm = { name: "", category: "", trainer: "", startsAt: "", duration: "60", capacity: "20" };
 
 export default function AdminClasses() {
   useThemeMode();
   const [classes, setClasses] = useState<any[]>([]);
+  const [bookings, setBookings] = useState<any[]>([]);
   const [form, setForm] = useState(initialForm);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerDraft, setPickerDraft] = useState(new Date());
+  const [expandedClassId, setExpandedClassId] = useState("");
+  const [busyBookingId, setBusyBookingId] = useState("");
   const load = useCallback(async () => {
     setLoading(true); setError("");
-    try { setClasses(await loadAdminClasses()); } catch (e) { setError(errorMessage(e)); }
+    try {
+      const [classRows, bookingRows] = await Promise.all([loadAdminClasses(), loadAdminBookings()]);
+      setClasses(classRows);
+      setBookings(bookingRows);
+    } catch (e) { setError(errorMessage(e)); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -71,6 +78,16 @@ export default function AdminClasses() {
     catch (e) { setError(errorMessage(e)); }
   }
 
+  async function updateBooking(bookingId: string, status: "approved" | "rejected" | "cancelled") {
+    setBusyBookingId(bookingId);
+    setError("");
+    try {
+      await setAdminBookingStatus(bookingId, status);
+      setBookings(await loadAdminBookings());
+    } catch (e) { setError(errorMessage(e)); }
+    finally { setBusyBookingId(""); }
+  }
+
   return <AdminScreen title="Classes">
     <AdminSectionTitle>Schedule a class</AdminSectionTitle>
     <AdminPanel>
@@ -108,11 +125,38 @@ export default function AdminClasses() {
     </Modal> : null}
     {error ? <AdminMessage>{error}</AdminMessage> : null}
     <AdminSectionTitle>Class schedule</AdminSectionTitle>
-    {loading && classes.length === 0 ? <AdminLoading /> : classes.length === 0 ? <AdminPanel><Text style={styles.muted}>No classes found. Create the first schedule above.</Text></AdminPanel> : classes.map((item) => <AdminPanel key={item.id} style={styles.classCard}>
-      <View style={styles.classHeader}><View style={styles.icon}><Ionicons name="fitness-outline" size={19} color={C.blue} /></View><View style={{ flex: 1 }}><Text style={styles.name}>{item.name}</Text><Text style={styles.meta}>{item.category} · {item.trainer_name}</Text></View><Text style={[styles.status, item.is_active ? styles.live : styles.off]}>{item.is_active ? "ACTIVE" : "HIDDEN"}</Text></View>
-      <Text style={styles.meta}>{formatAdminTime(item.starts_at)} · {item.duration_minutes} min · Capacity {item.capacity}</Text>
-      <TouchableOpacity style={styles.toggle} onPress={() => void toggleClass(item)}><Text style={styles.toggleText}>{item.is_active ? "Hide from members" : "Show to members"}</Text><Ionicons name="chevron-forward" size={15} color={C.blue} /></TouchableOpacity>
-    </AdminPanel>)}
+    {loading && classes.length === 0 ? <AdminLoading /> : classes.length === 0 ? <AdminPanel><Text style={styles.muted}>No classes found. Create the first schedule above.</Text></AdminPanel> : classes.map((item) => {
+      const classBookings = bookings.filter((booking) => booking.class_id === item.id && ["pending", "approved"].includes(booking.status));
+      const isExpanded = expandedClassId === item.id;
+      return <AdminPanel key={item.id} style={styles.classCard}>
+        <View style={styles.classHeader}><View style={styles.icon}><Ionicons name="fitness-outline" size={19} color={C.blue} /></View><View style={{ flex: 1 }}><Text style={styles.name}>{item.name}</Text><Text style={styles.meta}>{item.category} · {item.trainer_name}</Text></View><Text style={[styles.status, item.is_active ? styles.live : styles.off]}>{item.is_active ? "ACTIVE" : "HIDDEN"}</Text></View>
+        <Text style={styles.meta}>{formatAdminTime(item.starts_at)} · {item.duration_minutes} min · Capacity {item.capacity}</Text>
+        <TouchableOpacity style={styles.toggle} onPress={() => void toggleClass(item)}><Text style={styles.toggleText}>{item.is_active ? "Hide from members" : "Show to members"}</Text><Ionicons name="chevron-forward" size={15} color={C.blue} /></TouchableOpacity>
+        <TouchableOpacity style={styles.membersToggle} onPress={() => setExpandedClassId(isExpanded ? "" : item.id)} accessibilityRole="button">
+          <Text style={styles.toggleText}>{isExpanded ? "Hide members" : `View members (${classBookings.length})`}</Text>
+          <Ionicons name={isExpanded ? "chevron-up" : "chevron-down"} size={15} color={C.blue} />
+        </TouchableOpacity>
+        {isExpanded ? <View style={styles.memberList}>
+          {classBookings.length === 0 ? <Text style={styles.muted}>No members have booked this class yet.</Text> : classBookings.map((booking) => {
+            const profile = Array.isArray(booking.profiles) ? booking.profiles[0] : booking.profiles;
+            return <View key={booking.id} style={styles.memberRow}>
+              <View style={styles.memberInfo}>
+                <Text style={styles.memberName}>{profile?.full_name || "Member"}</Text>
+                {profile?.email ? <Text style={styles.meta}>{profile.email}</Text> : null}
+                <Text style={styles.meta}>Requested {formatAdminTime(booking.created_at)}</Text>
+              </View>
+              <View style={styles.memberActions}>
+                <Text style={[styles.bookingState, booking.status === "approved" ? styles.live : booking.status === "pending" ? styles.pending : styles.off]}>{String(booking.status).toUpperCase()}</Text>
+                {booking.status === "pending" ? <>
+                  <TouchableOpacity disabled={busyBookingId === booking.id} onPress={() => void updateBooking(booking.id, "rejected")}><Text style={styles.rejectAction}>{busyBookingId === booking.id ? "Saving…" : "Reject"}</Text></TouchableOpacity>
+                  <TouchableOpacity disabled={busyBookingId === booking.id} onPress={() => void updateBooking(booking.id, "approved")}><Text style={styles.approveAction}>{busyBookingId === booking.id ? "Saving…" : "Approve"}</Text></TouchableOpacity>
+                </> : booking.status === "approved" ? <TouchableOpacity disabled={busyBookingId === booking.id} onPress={() => void updateBooking(booking.id, "cancelled")}><Text style={styles.rejectAction}>{busyBookingId === booking.id ? "Saving…" : "Cancel"}</Text></TouchableOpacity> : null}
+              </View>
+            </View>;
+          })}
+        </View> : null}
+      </AdminPanel>;
+    })}
   </AdminScreen>;
 }
 
@@ -170,6 +214,16 @@ const styles = createThemeStyles({
   live: { color: C.green, backgroundColor: "#123D2A" },
   off: { color: C.muted, backgroundColor: C.panelDeep },
   toggle: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderTopWidth: 1, borderTopColor: C.border, marginTop: 10, paddingTop: 10 },
+  membersToggle: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderTopWidth: 1, borderTopColor: C.border, marginTop: 10, paddingTop: 10 },
+  memberList: { borderTopWidth: 1, borderTopColor: C.border, marginTop: 10, paddingTop: 4 },
+  memberRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border },
+  memberInfo: { flex: 1 },
+  memberName: { color: C.text, fontSize: 10, fontWeight: "700" },
+  memberActions: { flexDirection: "row", alignItems: "center", gap: 9, flexWrap: "wrap", justifyContent: "flex-end" },
+  bookingState: { fontSize: 7, fontWeight: "800", paddingHorizontal: 7, paddingVertical: 5, borderRadius: 10, overflow: "hidden" },
+  pending: { color: "#F4C95D", backgroundColor: "#40351D" },
+  rejectAction: { color: C.red, fontSize: 9, fontWeight: "700" },
+  approveAction: { color: C.blue, fontSize: 9, fontWeight: "700" },
   toggleText: { color: C.blue, fontSize: 10, fontWeight: "700" },
   muted: { color: C.muted, fontSize: 11 },
 });

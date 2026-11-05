@@ -16,18 +16,22 @@ import {
   View,
 } from "react-native";
 import { isSupabaseConfigured } from "../lib/supabase";
-import { requestLoginEmailCode, signInAdminWithPassword, verifyLoginEmailCode, type AppRole } from "../lib/auth";
+import { requestLoginEmailCode, resendSignupConfirmation, signInAdminWithPassword, verifyLoginEmailCode, type AppRole } from "../lib/auth";
 
 export default function Login() {
   useThemeMode();
-  const { signup } = useLocalSearchParams<{ signup?: string }>();
-  const [email, setEmail] = useState("");
+  const { signup, passwordReset, email: signupEmail } = useLocalSearchParams<{ signup?: string; passwordReset?: string; email?: string }>();
+  const [email, setEmail] = useState(typeof signupEmail === "string" ? signupEmail : "");
   const [password, setPassword] = useState("");
   const [selectedRole, setSelectedRole] = useState<AppRole>("member");
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loginError, setLoginError] = useState("");
-  const [loginMessage, setLoginMessage] = useState("");
+  const [loginMessage, setLoginMessage] = useState(passwordReset === "1"
+    ? "Your password was reset. Sign in with your new password."
+    : signup === "created"
+      ? "Your account is ready. Sign in to receive your email verification code."
+      : signup === "confirmed" ? "Your email is confirmed. You can now sign in." : "");
   const [verificationPending, setVerificationPending] = useState(false);
   const [verificationCode, setVerificationCode] = useState("");
 
@@ -37,8 +41,8 @@ export default function Login() {
       return;
     }
 
-    if (verificationPending && !/^\d{6}$/.test(verificationCode.trim())) {
-      setLoginError("Enter the six-digit code from your email.");
+    if (verificationPending && !/^\d{8}$/.test(verificationCode.trim())) {
+      setLoginError("Enter the eight-digit code from your email.");
       return;
     }
 
@@ -60,7 +64,7 @@ export default function Login() {
       if (!verificationPending) {
         await requestLoginEmailCode(email, password);
         setVerificationPending(true);
-        setLoginMessage(`A six-digit sign-in code was sent to ${email.trim()}. It expires in 10 minutes.`);
+        setLoginMessage(`An eight-digit sign-in code was sent to ${email.trim()}. It expires in one hour.`);
         return;
       }
 
@@ -95,22 +99,26 @@ export default function Login() {
     }
   };
 
-  const handlePasswordReset = async () => {
+  const handleResendSignupConfirmation = async () => {
     if (!email.trim()) {
-      Alert.alert("Email Required", "Enter your email address first.");
+      setLoginError("Enter the email address you used to register.");
       return;
     }
-    if (!isSupabaseConfigured) {
-      Alert.alert("Backend Not Configured", "Add your Supabase project URL and publishable key to the .env file, then restart Expo.");
-      return;
-    }
+    setIsSubmitting(true);
+    setLoginError("");
+    setLoginMessage("");
     try {
-      const { supabase } = await import("../lib/supabase");
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase());
-      Alert.alert(error ? "Reset Failed" : "Check Your Email", error?.message ?? "If an account exists, we sent a password reset link.");
-    } catch {
-      Alert.alert("Reset Failed", "Please try again when you have an internet connection.");
+      await resendSignupConfirmation(email);
+      setLoginMessage(`A new confirmation link was sent to ${email.trim()}.`);
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : "Could not resend the confirmation email. Please try again.");
+    } finally {
+      setIsSubmitting(false);
     }
+  };
+
+  const handlePasswordReset = () => {
+    router.push({ pathname: "/forgot-password", params: { email: email.trim().toLowerCase() } });
   };
 
   return (
@@ -162,7 +170,9 @@ export default function Login() {
 
             <Text style={styles.subtitle}>
               {signup === "verify"
-                ? "Account created. Verify your email, then log in."
+                ? "Account created but not active yet. Verify your email before logging in."
+                : signup === "confirmed"
+                  ? "Your email address has been verified."
                 : signup === "success"
                   ? "Account created. Log in with your email and password."
                   : "Login to continue to StayFit"}
@@ -170,6 +180,15 @@ export default function Login() {
             {loginError ? <Text style={styles.errorText}>{loginError}</Text> : null}
             {loginMessage ? <Text style={styles.verificationMessage}>{loginMessage}</Text> : null}
           </View>
+
+          {signup === "verify" ? (
+            <View style={styles.verificationLinks}>
+              <Text style={styles.verificationHelp}>Open the confirmation link sent to your email. You must verify it before your member account can sign in.</Text>
+              <TouchableOpacity onPress={() => void handleResendSignupConfirmation()} disabled={isSubmitting}>
+                <Text style={styles.forgotText}>{isSubmitting ? "Sending…" : "Resend confirmation email"}</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
 
           <View style={styles.roleSelector} accessibilityRole="radiogroup">
             {(["member", "admin"] as const).map((role) => {
@@ -208,17 +227,17 @@ export default function Login() {
             {verificationPending ? (
               <>
                 <Text style={styles.label}>Email verification code</Text>
-                <Text style={styles.verificationHelp}>Enter the six-digit code sent to {email.trim()}.</Text>
+                <Text style={styles.verificationHelp}>Enter the eight-digit code sent to {email.trim()}.</Text>
                 <View style={styles.inputContainer}>
                   <Ionicons name="keypad-outline" size={17} color="#667085" />
                   <TextInput
                     style={styles.input}
-                    placeholder="6-digit code"
+                    placeholder="8-digit code"
                     placeholderTextColor="#667085"
                     keyboardType="number-pad"
                     autoCapitalize="none"
                     autoCorrect={false}
-                    maxLength={6}
+                    maxLength={8}
                     value={verificationCode}
                     onChangeText={(value) => setVerificationCode(value.replace(/\D/g, ""))}
                   />

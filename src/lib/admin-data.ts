@@ -24,26 +24,27 @@ export async function loadAdminOverview() {
   const monthStart = new Date();
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
-  const [members, active, attendance, paid, pendingFreezes, pendingPasses, pendingRenewals, pendingPlans, classes, bookings] = await Promise.all([
+  const [members, active, attendance, paid, pendingFreezes, pendingUnfreezes, pendingPasses, pendingRenewals, pendingPlans, classes, bookings] = await Promise.all([
     supabase.from("profiles").select("id", { count: "exact", head: true }).eq("role", "member"),
     supabase.from("memberships").select("id", { count: "exact", head: true }).eq("status", "active").lte("starts_on", new Date().toISOString().slice(0, 10)).gte("ends_on", new Date().toISOString().slice(0, 10)),
     supabase.from("attendance").select("id", { count: "exact", head: true }).gte("checked_in_at", today.start).lt("checked_in_at", today.end),
     supabase.from("payments").select("amount").eq("status", "paid").gte("paid_at", monthStart.toISOString()),
     supabase.from("freeze_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
+    supabase.from("unfreeze_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
     supabase.from("daily_pass_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
     supabase.from("membership_renewal_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
     supabase.from("membership_plan_requests").select("id", { count: "exact", head: true }).eq("status", "pending"),
     supabase.from("gym_classes").select("id,name,category,trainer_name,starts_at,duration_minutes,capacity").eq("is_active", true).gte("starts_at", new Date().toISOString()).order("starts_at").limit(4),
     supabase.from("class_bookings").select("id,status,created_at,profiles(full_name),gym_classes(name)").order("created_at", { ascending: false }).limit(4),
   ]);
-  const resultErrors = [members.error, active.error, attendance.error, paid.error, pendingFreezes.error, pendingPasses.error, pendingRenewals.error, pendingPlans.error, classes.error, bookings.error].filter(Boolean);
+  const resultErrors = [members.error, active.error, attendance.error, paid.error, pendingFreezes.error, pendingUnfreezes.error, pendingPasses.error, pendingRenewals.error, pendingPlans.error, classes.error, bookings.error].filter(Boolean);
   if (resultErrors.length) throw resultErrors[0];
   return {
     members: members.count ?? 0,
     activeMemberships: active.count ?? 0,
     checkIns: attendance.count ?? 0,
     revenue: (paid.data ?? []).reduce((sum, row) => sum + Number(row.amount), 0),
-    pendingRequests: (pendingFreezes.count ?? 0) + (pendingPasses.count ?? 0) + (pendingRenewals.count ?? 0) + (pendingPlans.count ?? 0),
+    pendingRequests: (pendingFreezes.count ?? 0) + (pendingUnfreezes.count ?? 0) + (pendingPasses.count ?? 0) + (pendingRenewals.count ?? 0) + (pendingPlans.count ?? 0),
     classes: classes.data ?? [],
     bookings: bookings.data ?? [],
   };
@@ -130,7 +131,7 @@ export async function loadAdminBookings() {
   await requireAdmin();
   const { data, error } = await supabase
     .from("class_bookings")
-    .select("id,status,created_at,profiles(full_name,email),gym_classes(name,category,trainer_name,starts_at,duration_minutes,capacity)")
+    .select("id,class_id,status,created_at,profiles(full_name,email),gym_classes(name,category,trainer_name,starts_at,duration_minutes,capacity)")
     .order("created_at", { ascending: false })
     .limit(200);
   if (error) throw error;
@@ -163,24 +164,28 @@ export async function loadAdminPayments() {
   return data ?? [];
 }
 
-export type AdminRequestKind = "freeze" | "daily_pass" | "renewal" | "plan";
+export type AdminRequestKind = "freeze" | "unfreeze" | "daily_pass" | "renewal" | "plan" | "cancellation";
 export type AdminRequestStatus = "approved" | "rejected";
 
 export async function loadAdminRequests() {
   await requireAdmin();
-  const [freezes, passes, renewals, plans] = await Promise.all([
+  const [freezes, unfreezes, passes, renewals, plans, cancellations] = await Promise.all([
     supabase.from("freeze_requests").select("id,user_id,duration_days,reason,status,created_at,profiles!freeze_requests_user_id_fkey(full_name)").order("created_at", { ascending: false }).limit(100),
-    supabase.from("daily_pass_requests").select("id,user_id,visit_on,amount,payment_method,status,payment_status,checked_in_at,paypal_invoice_id,paypal_invoice_url,created_at,profiles(full_name)").order("created_at", { ascending: false }).limit(100),
+    supabase.from("unfreeze_requests").select("id,user_id,membership_id,reason,status,created_at,profiles!unfreeze_requests_user_id_fkey(full_name)").order("created_at", { ascending: false }).limit(100),
+    supabase.from("daily_pass_requests").select("id,user_id,visit_on,visit_time,amount,payment_method,status,payment_status,checked_in_at,paypal_invoice_id,paypal_invoice_url,created_at,profiles(full_name)").order("created_at", { ascending: false }).limit(100),
     supabase.from("membership_renewal_requests").select("id,user_id,membership_id,status,created_at,profiles(full_name)").order("created_at", { ascending: false }).limit(100),
     supabase.from("membership_plan_requests").select("id,user_id,plan_name,amount,billing_period,status,payment_status,payment_method,payment_reference,payment_submitted_at,paypal_invoice_id,paypal_invoice_url,created_at,profiles!membership_plan_requests_user_id_fkey(full_name)").order("created_at", { ascending: false }).limit(100),
+    supabase.from("membership_cancellation_requests").select("id,user_id,membership_id,payment_id,reason,status,refund_status,refund_reference,created_at,profiles!membership_cancellation_requests_user_id_fkey(full_name),payment:payments!membership_cancellation_requests_payment_id_fkey(id,description,amount,payment_method,status)").order("created_at", { ascending: false }).limit(100),
   ]);
-  const error = freezes.error ?? passes.error ?? renewals.error ?? plans.error;
+  const error = freezes.error ?? unfreezes.error ?? passes.error ?? renewals.error ?? plans.error ?? cancellations.error;
   if (error) throw error;
   return [
     ...(freezes.data ?? []).map((row) => ({ ...row, kind: "freeze" as const, detail: `${row.duration_days} day freeze · ${row.reason}` })),
-    ...(passes.data ?? []).map((row) => ({ ...row, kind: "daily_pass" as const, detail: `${formatAdminDate(row.visit_on)} · ₱${Number(row.amount).toLocaleString()} · ${row.payment_method}` })),
+    ...(unfreezes.data ?? []).map((row) => ({ ...row, kind: "unfreeze" as const, detail: row.reason?.trim() || "Member requested membership reactivation" })),
+    ...(passes.data ?? []).map((row) => ({ ...row, kind: "daily_pass" as const, detail: `${formatAdminDate(row.visit_on)} at ${String(row.visit_time).slice(0,5)} · ₱${Number(row.amount).toLocaleString()} · ${row.payment_method}` })),
     ...(renewals.data ?? []).map((row) => ({ ...row, kind: "renewal" as const, detail: "Membership renewal request" })),
     ...(plans.data ?? []).map((row) => ({ ...row, kind: "plan" as const, detail: `${row.plan_name} · ₱${Number(row.amount).toLocaleString("en-PH")} / ${row.billing_period}` })),
+    ...(cancellations.data ?? []).map((row) => ({ ...row, kind: "cancellation" as const, detail: row.reason?.trim() || "Member requested membership cancellation", payment: Array.isArray(row.payment) ? row.payment[0] : row.payment })),
   ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 }
 
@@ -196,7 +201,23 @@ export async function reviewAdminRequest(kind: AdminRequestKind, id: string, sta
     if (error) throw error;
     return;
   }
+  if (kind === "unfreeze") {
+    const { error } = await supabase.rpc("admin_review_unfreeze_request", { p_request_id: id, p_status: status });
+    if (error) throw error;
+    return;
+  }
+  if (kind === "cancellation") {
+    const { error } = await supabase.rpc("admin_review_membership_cancellation", { p_request_id: id, p_status: status });
+    if (error) throw error;
+    return;
+  }
   const { error } = await supabase.rpc("admin_review_member_request", { p_kind: kind, p_request_id: id, p_status: status });
+  if (error) throw error;
+}
+
+export async function recordMembershipRefund(id: string, reference: string) {
+  await requireAdmin();
+  const { error } = await supabase.rpc("admin_record_membership_refund", { p_request_id: id, p_refund_reference: reference });
   if (error) throw error;
 }
 

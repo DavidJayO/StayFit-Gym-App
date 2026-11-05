@@ -6,6 +6,7 @@ export type Membership = {
   status: "active" | "expired" | "frozen" | "cancelled";
   starts_on: string;
   ends_on: string;
+  membership_plan_request_id?: string | null;
 };
 
 export async function currentUserId() {
@@ -27,7 +28,7 @@ export async function loadProfile() {
 
 export async function loadMembership() {
   const userId = await currentUserId();
-  const { data, error } = await supabase.from("memberships").select("id,plan_name,status,starts_on,ends_on")
+  const { data, error } = await supabase.from("memberships").select("id,plan_name,status,starts_on,ends_on,membership_plan_request_id")
     .eq("user_id", userId).order("ends_on", { ascending: false }).limit(1).maybeSingle();
   if (error) throw error;
   return data as Membership | null;

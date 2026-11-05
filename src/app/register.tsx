@@ -9,7 +9,6 @@ import {
   Platform,
   SafeAreaView,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
@@ -30,6 +29,7 @@ export default function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [registrationError, setRegistrationError] = useState("");
 
   const handleRegister = async () => {
     if (
@@ -68,14 +68,19 @@ export default function Register() {
     }
 
     setIsSubmitting(true);
+    setRegistrationError("");
     try {
       const result = await signUp({ fullName, email, phone, password });
-      router.replace({
-        pathname: "/login",
-        params: { signup: result.needsEmailConfirmation ? "verify" : "success" },
-      });
+      if (result.needsEmailConfirmation) {
+        const { supabase } = await import("../lib/supabase");
+        await supabase.auth.signOut({ scope: "local" });
+        throw new Error("Supabase is still requiring email confirmation. Turn off Confirm email in Authentication → Sign In / Providers → User Signups, save the setting, then try registering again.");
+      }
+      const { supabase } = await import("../lib/supabase");
+      await supabase.auth.signOut({ scope: "local" });
+      router.replace({ pathname: "/login", params: { signup: "created", email: email.trim().toLowerCase() } });
     } catch (error) {
-      Alert.alert("Registration Failed", error instanceof Error ? error.message : "Please check your details and try again.");
+      setRegistrationError(error instanceof Error ? error.message : "Please check your details and try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -307,6 +312,9 @@ export default function Register() {
             </TouchableOpacity>
 
             {/* Register Button */}
+            {registrationError ? (
+              <Text accessibilityRole="alert" style={styles.registrationError}>{registrationError}</Text>
+            ) : null}
             <TouchableOpacity
               style={[
                 styles.registerButton,
@@ -419,6 +427,13 @@ const styles = createThemeStyles({
   titleContainer: {
     alignItems: "center",
     marginBottom: 20,
+  },
+
+  registrationError: {
+    color: "#FF7474",
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: 12,
   },
 
   title: {

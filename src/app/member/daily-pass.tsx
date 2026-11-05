@@ -2,16 +2,17 @@ import { createThemeStyles, useThemeMode } from "../../lib/theme";
 
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import * as WebBrowser from "expo-web-browser";
 import QRCode from "react-native-qrcode-svg";
+import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import {
     Alert,
+    Modal,
+    Platform,
     SafeAreaView,
     ScrollView,
-    StyleSheet,
     Text,
-    TextInput,
     TouchableOpacity,
     View,
 } from "react-native";
@@ -20,12 +21,25 @@ import { currentUserId, loadProfile, getErrorMessage } from "../../lib/member-da
 
 const BLUE = "#1769FF";
 
-type DailyPassRecord = { id: string; visit_on: string; status: string; payment_method: string; payment_status: string; access_token: string | null; checked_in_at: string | null; paypal_invoice_id: string | null; paypal_invoice_url: string | null };
+type DailyPassRecord = { id: string; visit_on: string; visit_time: string; status: string; payment_method: string; payment_status: string; access_token: string | null; checked_in_at: string | null; paypal_invoice_id: string | null; paypal_invoice_url: string | null };
 const localIsoDate = (date = new Date()) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
+const localTime = (date = new Date()) => String(date.getHours()).padStart(2, "0") + ":" + String(date.getMinutes()).padStart(2, "0");
+const toLocalDateTimeInputValue = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+const timeLabel = (time: string) => { const parts = time.split(":").map(Number); const date = new Date(); date.setHours(parts[0], parts[1], 0, 0); return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); };
+const defaultVisitDateTime = () => {
+  const date = new Date();
+  date.setMinutes(Math.ceil((date.getMinutes() + 30) / 15) * 15, 0, 0);
+  return date;
+};
+const initialVisitDateTime = defaultVisitDateTime();
 
 export default function DailyPass() {
   useThemeMode();
-  const [visitDate, setVisitDate] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; });
+  const [visitTime, setVisitTime] = useState(() => localTime(initialVisitDateTime));
+  const [pickerVisible, setPickerVisible] = useState(false);
+  const [pickerDraft, setPickerDraft] = useState(() => initialVisitDateTime);
+  const [visitDate, setVisitDate] = useState(() => localIsoDate(initialVisitDateTime));
   const [paymentMethod, setPaymentMethod] = useState("PayPal");
   const [fullName, setFullName] = useState("");
   const [submitted, setSubmitted] = useState(false);
@@ -35,10 +49,10 @@ export default function DailyPass() {
   const refreshPassStatus = async () => {
     try {
       const userId = await currentUserId();
-      const { data, error } = await supabase.from("daily_pass_requests").select("id,status,visit_on,payment_method,payment_status,access_token,checked_in_at,paypal_invoice_id,paypal_invoice_url").eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      const { data, error } = await supabase.from("daily_pass_requests").select("id,status,visit_on,visit_time,payment_method,payment_status,access_token,checked_in_at,paypal_invoice_id,paypal_invoice_url").eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (error) throw error;
       setLatestPass(data as DailyPassRecord | null);
-      if (data) setLatestRequest(`Latest request: ${data.status.toUpperCase()} · visit ${data.visit_on} · payment ${data.payment_status.toUpperCase()}`);
+      if (data) setLatestRequest(`Latest request: ${data.status.toUpperCase()} · visit ${data.visit_on} at ${timeLabel(data.visit_time)} · payment ${data.payment_status.toUpperCase()}`);
     } catch (e) { Alert.alert("Pass status unavailable", getErrorMessage(e)); }
   };
 
@@ -52,7 +66,7 @@ export default function DailyPass() {
       if (data?.error) throw new Error(data.error);
       const invoiceUrl = data?.invoice_url ?? request.paypal_invoice_url;
       setLatestPass((current) => current?.id === request.id ? { ...current, payment_status: "submitted", paypal_invoice_id: data?.invoice_id ?? current.paypal_invoice_id, paypal_invoice_url: invoiceUrl } : current);
-      setLatestRequest(`Latest request: PENDING · visit ${request.visit_on} · PayPal payment submitted`);
+      setLatestRequest(`Latest request: PENDING · visit ${request.visit_on} at ${timeLabel(request.visit_time)} · PayPal payment submitted`);
       if (!invoiceUrl) throw new Error("PayPal checkout link is not available yet. Refresh the pass and try again.");
       await WebBrowser.openBrowserAsync(invoiceUrl);
     } catch (e) { Alert.alert("Could not start PayPal checkout", getErrorMessage(e)); }
@@ -62,14 +76,42 @@ export default function DailyPass() {
     try {
       const [profile, userId] = await Promise.all([loadProfile(), currentUserId()]);
       setFullName(profile.full_name);
-      const { data, error } = await supabase.from("daily_pass_requests").select("id,status,visit_on,payment_method,payment_status,access_token,checked_in_at,paypal_invoice_id,paypal_invoice_url").eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      const { data, error } = await supabase.from("daily_pass_requests").select("id,status,visit_on,visit_time,payment_method,payment_status,access_token,checked_in_at,paypal_invoice_id,paypal_invoice_url").eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (error) throw error;
       if (data) {
         setLatestPass(data as DailyPassRecord);
-        setLatestRequest(`Latest request: ${data.status.toUpperCase()} · visit ${data.visit_on} · payment ${data.payment_status.toUpperCase()}`);
+        setLatestRequest(`Latest request: ${data.status.toUpperCase()} · visit ${data.visit_on} at ${timeLabel(data.visit_time)} · payment ${data.payment_status.toUpperCase()}`);
       }
     } catch (e) { Alert.alert("Member data unavailable", getErrorMessage(e)); }
   })(); }, []);
+
+  function openVisitDateTimePicker() {
+    const current = new Date(visitDate + "T" + visitTime + ":00");
+    if (Platform.OS === "android") {
+      DateTimePickerAndroid.open({
+        value: current,
+        mode: "date",
+        minimumDate: new Date(),
+        onValueChange: (_event, selectedDate) => {
+          const next = new Date(current);
+          next.setFullYear(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+          DateTimePickerAndroid.open({
+            value: next,
+            mode: "time",
+            is24Hour: false,
+            onValueChange: (_timeEvent, selectedTime) => {
+              next.setHours(selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
+              setVisitDate(localIsoDate(next));
+              setVisitTime(localTime(next));
+            },
+          });
+        },
+      });
+      return;
+    }
+    setPickerDraft(current);
+    setPickerVisible(true);
+  }
 
   const handlePurchase = async () => {
     if (!visitDate.trim()) {
@@ -90,14 +132,22 @@ export default function DailyPass() {
       Alert.alert("Invalid Date", "Choose today or a future visit date.");
       return;
     }
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(visitTime)) {
+      Alert.alert("Invalid Time", "Choose a valid visit time.");
+      return;
+    }
+    if (visitDate === localIsoDate() && visitTime < localTime()) {
+      Alert.alert("Invalid Time", "For today, choose a time that has not passed.");
+      return;
+    }
 
     try {
       const userId = await currentUserId();
-      const { data, error } = await supabase.from("daily_pass_requests").insert({ user_id: userId, visit_on: visitDate, payment_method: paymentMethod }).select("id,status,visit_on,payment_method,payment_status,access_token,checked_in_at,paypal_invoice_id,paypal_invoice_url").single();
+      const { data, error } = await supabase.from("daily_pass_requests").insert({ user_id: userId, visit_on: visitDate, visit_time: visitTime, payment_method: paymentMethod }).select("id,status,visit_on,visit_time,payment_method,payment_status,access_token,checked_in_at,paypal_invoice_id,paypal_invoice_url").single();
       if (error) throw error;
       setLatestPass(data as DailyPassRecord);
       setSubmitted(true);
-      setLatestRequest(`Latest request: PENDING · visit ${visitDate} · payment PENDING`);
+      setLatestRequest(`Latest request: PENDING · visit ${visitDate} at ${timeLabel(visitTime)} · payment PENDING`);
       if (paymentMethod === "PayPal") await startPaypalCheckout(data as DailyPassRecord);
       else Alert.alert("Request submitted", "Your daily pass request is saved. Staff must approve it and record your cash payment before the entry QR becomes available.");
     } catch (e) { Alert.alert("Request failed", getErrorMessage(e)); }
@@ -183,7 +233,7 @@ export default function DailyPass() {
             : latestPass.visit_on !== localIsoDate() ? <Text style={styles.accessMessage}>Your pass is paid and approved for {latestPass.visit_on}. The entry QR will be available on that visit date.</Text>
             : latestPass.access_token ? <>
               <View style={styles.qrCard}><QRCode value={`STAYFIT-DAYPASS:${latestPass.access_token}`} size={210} backgroundColor="#FFFFFF" color="#06111C" /></View>
-              <Text style={styles.qrCaption}>Show this entry QR to gym staff on {latestPass.visit_on}. It can be scanned once.</Text>
+              <Text style={styles.qrCaption}>Show this entry QR to gym staff on {latestPass.visit_on} (planned arrival {timeLabel(latestPass.visit_time)}). It can be scanned once.</Text>
             </> : <Text style={styles.accessMessage}>Your entry pass is being prepared. Refresh this page shortly.</Text>}
           <TouchableOpacity style={styles.refreshPass} onPress={() => void refreshPassStatus()}><Ionicons name="refresh-outline" size={15} color="#4D8DFF" /><Text style={styles.refreshPassText}>Refresh pass status</Text></TouchableOpacity>
         </View> : null}
@@ -194,19 +244,21 @@ export default function DailyPass() {
           <Text style={styles.label}>ACCOUNT</Text>
           <Text style={styles.input}>{fullName || "Loading member profile…"}</Text>
 
-          <Text style={styles.label}>VISIT DATE (YYYY-MM-DD)</Text>
-          <View style={styles.inputContainer}>
+          <Text style={styles.label}>VISIT DATE AND TIME</Text>
+          {Platform.OS === "web" ? <WebDateTimeInput
+            value={toLocalDateTimeInputValue(new Date(visitDate + "T" + visitTime + ":00"))}
+            minimum={toLocalDateTimeInputValue(new Date())}
+            onChange={(value) => {
+              const parts = value.split("T");
+              if (parts[0]) setVisitDate(parts[0]);
+              if (parts[1]) setVisitTime(parts[1].slice(0, 5));
+            }}
+          /> : <TouchableOpacity style={styles.inputContainer} onPress={openVisitDateTimePicker} accessibilityRole="button" accessibilityLabel="Select daily pass visit date and time">
             <Ionicons name="calendar-outline" size={18} color="#98A2B3" />
-            <TextInput
-              style={styles.input}
-              value={visitDate}
-              onChangeText={setVisitDate}
-            placeholder="YYYY-MM-DD"
-              placeholderTextColor="#667085"
-              keyboardType="numbers-and-punctuation"
-              maxLength={10}
-            />
-          </View>
+            <Text style={styles.input}>{new Date(visitDate + "T" + visitTime + ":00").toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</Text>
+            <Ionicons name="chevron-down" size={16} color="#98A2B3" />
+          </TouchableOpacity>}
+          <Text style={styles.fieldHint}>Choose your planned arrival time. Your pass remains valid for the selected visit date.</Text>
 
           <Text style={styles.label}>PAYMENT METHOD</Text>
 
@@ -258,7 +310,7 @@ export default function DailyPass() {
             </Text>
           </TouchableOpacity>
 
-          {(submitted || latestRequest) && (
+          {(submitted || Boolean(latestRequest)) && (
             <View style={styles.pendingNotice}>
               <Ionicons
                 name="time-outline"
@@ -317,8 +369,43 @@ export default function DailyPass() {
       </View>
 
       <View style={styles.bottomLine} />
+      {Platform.OS === "ios" ? <Modal visible={pickerVisible} transparent animationType="slide" onRequestClose={() => setPickerVisible(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.pickerPanel}>
+            <View style={styles.pickerHeader}>
+              <TouchableOpacity onPress={() => setPickerVisible(false)}><Text style={styles.pickerAction}>Cancel</Text></TouchableOpacity>
+              <Text style={styles.pickerTitle}>Visit date and time</Text>
+              <TouchableOpacity onPress={() => { setVisitDate(localIsoDate(pickerDraft)); setVisitTime(localTime(pickerDraft)); setPickerVisible(false); }}><Text style={styles.pickerAction}>Done</Text></TouchableOpacity>
+            </View>
+            <DateTimePicker value={pickerDraft} mode="datetime" display="spinner" minimumDate={new Date()} onValueChange={(_event, date) => setPickerDraft(date)} />
+          </View>
+        </View>
+      </Modal> : null}
     </SafeAreaView>
   );
+}
+
+function WebDateTimeInput(props: { value: string; minimum: string; onChange: (value: string) => void }) {
+  return React.createElement("input" as any, {
+    type: "datetime-local",
+    value: props.value,
+    min: props.minimum,
+    "aria-label": "Select daily pass visit date and time",
+    onChange: (event: { currentTarget: { value: string } }) => props.onChange(event.currentTarget.value),
+    style: {
+      boxSizing: "border-box",
+      width: "100%",
+      minHeight: 48,
+      backgroundColor: "#0B1A28",
+      border: "1px solid #24394A",
+      borderRadius: 10,
+      padding: "0 12px",
+      color: "#FFFFFF",
+      colorScheme: "dark",
+      fontSize: 12,
+      marginBottom: 8,
+    },
+  });
 }
 
 function NavItem({
@@ -406,6 +493,12 @@ const styles = createThemeStyles({
     height: 48, paddingHorizontal: 12, marginBottom: 16,
   },
   input: { flex: 1, color: "#FFFFFF", fontSize: 12 },
+  fieldHint: { color: "#98A2B3", fontSize: 10, lineHeight: 15, marginTop: -2, marginBottom: 12 },
+  modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.55)" },
+  pickerPanel: { backgroundColor: "#102131", borderTopLeftRadius: 18, borderTopRightRadius: 18, paddingBottom: 20 },
+  pickerHeader: { minHeight: 48, flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 18, borderBottomWidth: 1, borderBottomColor: "#24394A" },
+  pickerTitle: { color: "#FFFFFF", fontSize: 12, fontWeight: "700" },
+  pickerAction: { color: "#4D8DFF", fontSize: 12, fontWeight: "700" },
   paymentOption: {
     flexDirection: "row", alignItems: "center",
     backgroundColor: "#0B1A28", borderWidth: 1,

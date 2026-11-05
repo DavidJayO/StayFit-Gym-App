@@ -94,5 +94,16 @@ export async function signUp(input: {
   });
 
   if (error) throw error;
+  if (data.user?.identities?.length === 0) {
+    throw new Error("This email is already registered. Sign in with that account or use a different email address.");
+  }
   return { needsEmailConfirmation: !data.session };
+}
+
+export async function resendSignupConfirmation(email: string) {
+  const { error } = await supabase.auth.resend({
+    type: "signup",
+    email: email.trim().toLowerCase(),
+  });
+  if (error) throw error;
 }
